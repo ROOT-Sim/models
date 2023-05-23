@@ -66,3 +66,6 @@ cmake-build-*
 # Local targets of the libraries
 lib/
 include/
+
+# Python virtual environment
+venv/

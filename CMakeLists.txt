@@ -17,3 +17,4 @@ set(ROOTSIM_RNG_INCLUDE_PATH "${CMAKE_SOURCE_DIR}/include")
 set(ROOTSIM_RNG_LIBRARIES "${CMAKE_SOURCE_DIR}/lib/librsrng.a")
 
 add_subdirectory(phold)
+add_subdirectory(traffic)
