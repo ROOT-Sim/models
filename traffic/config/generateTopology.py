@@ -51,8 +51,8 @@ def get_all_nodes(root):
 def get_all_edges(root, nodes, length_attribute):
     edges = root.findall('graphml:graph/graphml:edge', namespaces=NS)
     start_at = len(nodes)
-    edge_dict = {index + start_at: {'source': nodes[edge.attrib['source']],
-                                    'target': nodes[edge.attrib['target']],
+    edge_dict = {index + start_at: {'source': nodes[edge.attrib['source']]['index'],
+                                    'target': nodes[edge.attrib['target']]['index'],
                                     'length': edge.find('graphml:data[@key="' + length_attribute + '"]',
                                                         namespaces=NS).text}
                  for index, edge in enumerate(edges)}
@@ -96,4 +96,4 @@ def main(city):
 
 
 if __name__ == "__main__":
-    main("trento")
+    main("rostock")
