@@ -15,6 +15,8 @@ set(ROOTSIM_CORE_INCLUDE_PATH "${CMAKE_SOURCE_DIR}/include")
 set(ROOTSIM_CORE_LIBRARIES "${CMAKE_SOURCE_DIR}/lib/librscore.a")
 set(ROOTSIM_RNG_INCLUDE_PATH "${CMAKE_SOURCE_DIR}/include")
 set(ROOTSIM_RNG_LIBRARIES "${CMAKE_SOURCE_DIR}/lib/librsrng.a")
+set(ROOTSIM_TOPOLOGY_INCLUDE_PATH "${CMAKE_SOURCE_DIR}/include")
+set(ROOTSIM_TOPOLOGY_LIBRARIES "${CMAKE_SOURCE_DIR}/lib/librstopology.a")
 
 add_subdirectory(phold)
 add_subdirectory(traffic)

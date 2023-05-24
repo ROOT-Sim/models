@@ -10,7 +10,7 @@
  * For any information, you can find contact information on my personal webpage:
  * http://www.dis.uniroma1.it/~pellegrini
  *
- * @file init.c
+ * @file traffic/config.c
  * @brief This module implements the initialization functions
  * @author Alessandro Pellegrini
  * @date January 12, 2012
@@ -23,7 +23,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <locale.h>
+
+#include <ROOT-Sim/topology.h>
 
 #include "config.h"
 
@@ -75,6 +76,8 @@ static struct edge_config *edge_config;
 
 static uint64_t count_configured_nodes = 0;
 static uint64_t count_configured_edges = 0;
+
+static struct topology *topology;
 
 static inline void *xmalloc(size_t size)
 {
@@ -260,6 +263,25 @@ static void parse_main_level(const char *config, size_t count)
 	}
 }
 
+static void initialize_topology(void)
+{
+	topology = InitializeTopology(TOPOLOGY_GRAPH, conf_num_nodes);
+	if(topology == NULL) {
+		fprintf(stderr, "Unable to initialize topology graph: ");
+		perror(NULL);
+		exit(EXIT_FAILURE);
+	}
+
+	for(size_t i = 0; i < conf_num_edges; i++) {
+		if(AddTopologyLink(topology, edge_config[i].from, edge_config[i].to, 1) == false) {
+			fprintf(stderr, "Unable to link node %lu with node %lu\n", edge_config[i].from,
+			    edge_config[i].to);
+		}
+	}
+
+	NormalizeLinkProbabilities(topology);
+}
+
 uint64_t process_configuration_file(FILE *f)
 {
 	size_t read;
@@ -315,6 +337,9 @@ again:
 
 	free(tokens);
 	free(conf_file);
+
+	// Now build the in-memory graph
+	initialize_topology();
 
 	return conf_num_nodes + conf_num_edges;
 }
