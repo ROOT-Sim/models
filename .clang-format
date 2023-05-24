@@ -73,7 +73,7 @@ IndentCaseLabels: true
 IndentExternBlock: NoIndent
 IndentGotoLabels: false
 IndentPPDirectives: None
-IndentRequires: true
+IndentRequiresClause: true
 IndentWidth: 8
 IndentWrappedFunctionNames: true
 InsertTrailingCommas: None

@@ -24,7 +24,7 @@
 #include <string.h>
 
 #include "application.h"
-#include "init.h"
+#include "config.h"
 
 void ProcessEvent(unsigned int me, simtime_t now, int event_type, void *event, size_t size, struct state *state) {
     simtime_t timestamp = 0;
