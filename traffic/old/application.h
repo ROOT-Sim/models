@@ -14,8 +14,8 @@
 
 #pragma once
 
-#include <ROOT-Sim.h>
-#include <ROOT-Sim/random.h>
+#include "ROOT-Sim.h"
+#include "ROOT-Sim/random.h"
 
 
 #ifndef SIMPLE_TRAFFIC
@@ -23,9 +23,9 @@
 #endif
 
 
-#define YEAR    31536000
-#define WEEK    604800
-#define DAY    86400
+#define YEAR 31536000
+#define WEEK 604800
+#define DAY 86400
 
 
 // Execution time must be specified in seconds

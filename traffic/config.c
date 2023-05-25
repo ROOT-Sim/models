@@ -293,10 +293,6 @@ uint64_t process_configuration_file(FILE *f)
 	size_t tok_count = 256;
 
 	jsmn_init(&p);
-
-	printf("Parsing configuration file... ");
-	fflush(stdout);
-
 	tokens = xmalloc(sizeof(*tokens) * tok_count);
 
 	while(true) {
@@ -333,8 +329,6 @@ again:
 		}
 	}
 
-	printf("done\n");
-
 	free(tokens);
 	free(conf_file);
 
@@ -354,7 +348,7 @@ void get_node_config(lp_id_t me, struct node_config *c)
 
 void get_edge_config(lp_id_t me, struct edge_config *c)
 {
-	memcpy(c, &edge_config[me], sizeof(edge_config[me]));
+	memcpy(c, &edge_config[me - conf_num_nodes], sizeof(*edge_config));
 	if(++count_configured_edges == conf_num_edges)
 		free(edge_config);
 }
