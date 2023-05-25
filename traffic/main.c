@@ -16,8 +16,6 @@ static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const v
 		state->lvt = now;
 	}
 
-	struct car_arrival_event *car_arrival;
-
 	switch(event_type) {
 		case LP_INIT:
 			state = rs_malloc(sizeof(*state));
@@ -51,11 +49,13 @@ static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const v
 			break;
 
 		case ARRIVAL:
-			car_arrival = (struct car_arrival_event *)content;
-			process_car_arrival(me, state, car_arrival);
+			process_car_arrival(me, state, (struct car_arrival_event *)content);
 			break;
 
 		case LEAVE:
+			process_car_leave(me, state, (struct car_leave_event *)content);
+			break;
+
 		case FINISH_ACCIDENT:
 			break;
 

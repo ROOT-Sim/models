@@ -360,3 +360,12 @@ unsigned long count_neighbours(lp_id_t me)
 
 	return CountDirections(me, topology);
 }
+
+unsigned long get_random_destination(lp_id_t me)
+{
+	assert(IS_NODE(me));
+
+	lp_id_t destination_node = GetReceiver(me, topology, DIRECTION_RANDOM);
+	// TODO: must pass across an edge!
+	return destination_node;
+}

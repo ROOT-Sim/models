@@ -75,5 +75,11 @@ struct state {
 
 struct car_arrival_event {
 	lp_id_t from;
-	bool injection; // Tells whether the car is entering the road network or not
+	lp_id_t destination; // Used to tell an edge what is the node we are heading to.
+	bool injection;      // Tells whether the car is entering the road network or not
+};
+
+struct car_leave_event {
+	lp_id_t destination; // Used to tell an edge what is the node we are heading to.
+	unsigned long long car_id;
 };

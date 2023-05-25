@@ -176,6 +176,53 @@ static struct vehicle *car_enqueue(lp_id_t me, lp_id_t from, struct state *state
 	return new_car;
 }
 
+// Find car with ID *mark and pop it. Update speeds of preceding cars
+static struct vehicle *car_dequeue(unsigned int me, struct state *state, struct car_leave_event *event)
+{
+	struct vehicle *curr_car;
+	struct vehicle *ret_car;
+
+	curr_car = state->queue;
+
+	if(curr_car == NULL) {
+		printf("ERROR_1: car %llu not found in LP %u\n", event->car_id, me);
+		abort();
+	}
+
+	if(curr_car->car_id == event->car_id) {
+		if(curr_car->accident || curr_car->stopped) {
+			return NULL;
+		}
+
+		state->queue = curr_car->next;
+		state->queued_elements--;
+		return curr_car;
+	}
+
+	while(curr_car->next != NULL && curr_car->next->car_id != event->car_id) {
+		curr_car = curr_car->next;
+		curr_car->speed = fabs(Gaussian(&state->seed, state->road_len / (curr_car->leave - curr_car->arrival),
+		    SPEED_SIGMA)); // TODO
+	}
+
+	if(curr_car->next == NULL) {
+		printf("ERROR_2: car %llu not found in LP %u\n", event->car_id, me);
+		abort();
+	}
+
+	ret_car = curr_car->next;
+	if(ret_car->accident || ret_car->stopped) {
+		return NULL;
+	}
+
+	curr_car->next = curr_car->next->next;
+
+	state->queued_elements--;
+
+	return ret_car;
+}
+
+
 void inject_new_car(lp_id_t me, struct state *state)
 {
 	simtime_t timestamp;
@@ -198,6 +245,7 @@ void inject_new_car(lp_id_t me, struct state *state)
 void process_car_arrival(lp_id_t me, struct state *state, struct car_arrival_event *event)
 {
 	struct vehicle *car;
+	struct car_leave_event car_leave_evt;
 
 	if(!event->injection && check_car_leaving(state, event->from, me)) {
 		return;
@@ -205,7 +253,8 @@ void process_car_arrival(lp_id_t me, struct state *state, struct car_arrival_eve
 
 	if(state->queued_elements < state->total_queue_slots) {
 		car = car_enqueue(me, event->from, state);
-		ScheduleNewEvent(me, car->leave, LEAVE, &car->car_id, sizeof(unsigned long long));
+		car_leave_evt.car_id = car->car_id;
+		ScheduleNewEvent(me, car->leave, LEAVE, &car_leave_evt, sizeof(car_leave_evt));
 	} else {
 		fprintf(stderr, "Object queue full: %s\n", IS_NODE(me) ? "JUNCTION" : "ROAD");
 		abort();
@@ -216,5 +265,35 @@ void process_car_arrival(lp_id_t me, struct state *state, struct car_arrival_eve
 	// If the arrival is related to a new car entering the road system, schedule the next car entering event
 	if(event->injection && IS_NODE(me)) {
 		inject_new_car(me, state);
+	}
+}
+
+void process_car_leave(lp_id_t me, struct state *state, struct car_leave_event *event)
+{
+	struct car_arrival_event new_event = {0};
+	lp_id_t receiver;
+	struct vehicle *car = car_dequeue(me, state, event);
+
+	if(car != NULL) {
+		new_event.from = me;
+		new_event.injection = false;
+
+		if(IS_EDGE(me)) {
+			if(count_neighbours(me) > 1) {
+				do {
+					receiver = get_random_destination(me);
+				} while(receiver == car->from);
+			} else {
+				receiver = get_random_destination(me);
+			}
+		} else {
+			receiver = event->destination;
+		}
+
+		ScheduleNewEvent(receiver, car->leave, ARRIVAL, &new_event, sizeof(new_event));
+		free(car);
+	} else {
+		// MUST HANDLE "RETRACTABILITY" OF LEAVE EVENTS
+		abort();
 	}
 }
