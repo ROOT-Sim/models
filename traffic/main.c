@@ -16,6 +16,8 @@ static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const v
 		state->lvt = now;
 	}
 
+	struct car_arrival_event *car_arrival;
+
 	switch(event_type) {
 		case LP_INIT:
 			state = rs_malloc(sizeof(*state));
@@ -35,7 +37,7 @@ static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const v
 				state->leave_prob = c.leave_prob;
 				state->total_queue_slots = CARS_PER_JUNCTION;
 
-				inject_new_cars(me, state);
+				inject_new_car(me, state);
 			} else {
 				struct edge_config c;
 				get_edge_config(me, &c);
@@ -49,17 +51,24 @@ static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const v
 			break;
 
 		case ARRIVAL:
+			car_arrival = (struct car_arrival_event *)content;
+			process_car_arrival(me, state, car_arrival);
+			break;
+
+		case LEAVE:
+		case FINISH_ACCIDENT:
 			break;
 
 		default:
 			printf("Simulation error: unexpected event (me=%lu - event type=%d)\n", me, event_type);
 			abort();
-			break;
 	}
 }
 
 static bool CanEnd(lp_id_t me, const void *snapshot)
 {
+	(void)me;
+	(void)snapshot;
 	return false;
 }
 

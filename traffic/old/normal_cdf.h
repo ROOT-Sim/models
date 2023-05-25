@@ -18,7 +18,7 @@
 #define _1_SQRT_2PI 0.39894228040143267793994605993    /* 1/\sqrt(2\pi) */
 
 // Compute the probability in a given contour according to a normal distribution
-extern double contourcdf(double min, double max, double mean, double var);
+extern double contour_cdf(double min, double max, double mean, double var);
 
 extern double normcdf(double x, double mean, double var);
 

@@ -91,7 +91,8 @@ double normcdf(double x, double mean, double var) {
     return unitcdf((x - mean) / sqrt(var));
 }
 
-double contourcdf(double min, double max, double mean, double var) {
+double contour_cdf(double min, double max, double mean, double var)
+{
     double minCDF, maxCDF;
 
     minCDF = normcdf(min, mean, var);

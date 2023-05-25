@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include <ROOT-Sim/topology.h>
+#include <assert.h>
 
 #include "config.h"
 
@@ -351,4 +352,11 @@ void get_edge_config(lp_id_t me, struct edge_config *c)
 	memcpy(c, &edge_config[me - conf_num_nodes], sizeof(*edge_config));
 	if(++count_configured_edges == conf_num_edges)
 		free(edge_config);
+}
+
+unsigned long count_neighbours(lp_id_t me)
+{
+	assert(IS_NODE(me));
+
+	return CountDirections(me, topology);
 }

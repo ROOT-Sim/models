@@ -127,7 +127,7 @@ struct state {
     struct topology *topology;        // Each node can have an arbitrary number of neighbours
     unsigned int queued_elements;
     struct vehicle *queue;            // Cars passing through the node are stored here
-    unsigned long long car_id;
+    unsigned long long car_monotonic_counter;
 };
 
 

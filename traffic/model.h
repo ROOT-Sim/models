@@ -36,12 +36,25 @@
 #define CARS_PER_JUNCTION 10
 #endif
 
+// In Km/h.
+#ifndef AVERAGE_SPEED
+#define AVERAGE_SPEED 110
+#endif
+#define MIN_SPEED 20
+
+#define SPEED_SIGMA 20.0
+
+#define ACCIDENT_PROBABILITY 0.15
+#define ACCIDENT_DURATION 3600 // one hour on average
+#define ACCIDENT_SIGMA 30
+#define ACCIDENT_LEAVE_TIME 20 // Exponential mean to compute the time increment to leave after an accident
+
 #define D_EQUAL(a, b) (fabs((a) - (b)) < DBL_EPSILON)
 #define D_EQUAL_ZERO(a) (fabs(a) < DBL_EPSILON)
 #define D_DIFFER(a, b) (fabs((a) - (b)) >= DBL_EPSILON)
 #define D_DIFFER_ZERO(a) (fabs(a) >= DBL_EPSILON)
 
-enum events { ARRIVAL };
+enum events { ARRIVAL, LEAVE, FINISH_ACCIDENT };
 
 struct state {
 	simtime_t lvt;
@@ -56,6 +69,7 @@ struct state {
 	};
 	unsigned int total_queue_slots;
 	unsigned int queued_elements;
+	unsigned long long int car_monotonic_counter;
 	struct vehicle *queue;
 };
 
