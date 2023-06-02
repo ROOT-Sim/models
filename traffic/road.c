@@ -223,6 +223,22 @@ static struct vehicle *car_dequeue(unsigned int me, struct state *state, struct 
 }
 
 
+void release_cars(unsigned int me, struct state *state)
+{
+	(void)me;
+	struct vehicle *curr_car;
+
+	curr_car = state->queue;
+	while(curr_car != NULL) {
+		if(curr_car->accident == true) {
+			curr_car->accident = false;
+		}
+
+		curr_car = curr_car->next;
+	}
+}
+
+
 void inject_new_car(lp_id_t me, struct state *state)
 {
 	simtime_t timestamp;

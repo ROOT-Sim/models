@@ -46,6 +46,7 @@ static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const v
 			break;
 
 		case LP_FINI:
+			// no-op
 			break;
 
 		case ARRIVAL:
@@ -57,6 +58,8 @@ static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const v
 			break;
 
 		case FINISH_ACCIDENT:
+			state->accident = false;
+			release_cars(me, state);
 			break;
 
 		default:
