@@ -202,6 +202,7 @@ static void process_edges(const char *config, size_t tok, size_t count)
 			exit(EXIT_FAILURE);
 		}
 
+		edge_config[curr_edge - conf_num_nodes].id = curr_edge;
 		edge_config[curr_edge - conf_num_nodes].from = source;
 		edge_config[curr_edge - conf_num_nodes].to = target;
 		edge_config[curr_edge - conf_num_nodes].length = length;
@@ -278,6 +279,10 @@ static void initialize_topology(void)
 			fprintf(stderr, "Unable to link node %lu with node %lu\n", edge_config[i].from,
 			    edge_config[i].to);
 		}
+		if(SetTopologyLinkData(topology, edge_config[i].from, edge_config[i].to, &edge_config[i]) == false) {
+			fprintf(stderr, "Unable to store edge information between nodes %lu and %lu\n",
+			    edge_config[i].from, edge_config[i].to);
+		}
 	}
 
 	NormalizeLinkProbabilities(topology);
@@ -350,22 +355,37 @@ void get_node_config(lp_id_t me, struct node_config *c)
 void get_edge_config(lp_id_t me, struct edge_config *c)
 {
 	memcpy(c, &edge_config[me - conf_num_nodes], sizeof(*edge_config));
-	if(++count_configured_edges == conf_num_edges)
-		free(edge_config);
 }
 
 unsigned long count_neighbours(lp_id_t me)
 {
-	assert(IS_NODE(me));
+	assert(IS_JUNCTION(me));
 
-	return CountDirections(me, topology);
+	return CountDirections(topology, me);
 }
 
-unsigned long get_random_destination(lp_id_t me)
+// The topology structure is connecting junctions. We need to pass through an edge,
+// which is kept as a payload of the topology.
+lp_id_t get_path_towards(lp_id_t me, lp_id_t to)
 {
-	assert(IS_NODE(me));
+	struct edge_config *config = GetTopologyLinkData(topology, me, to);
+	return edge_config->id;
+}
 
-	lp_id_t destination_node = GetReceiver(me, topology, DIRECTION_RANDOM);
-	// TODO: must pass across an edge!
+lp_id_t get_random_destination(lp_id_t me)
+{
+	assert(IS_JUNCTION(me));
+	lp_id_t destination_node = GetReceiver(topology, me, DIRECTION_RANDOM);
+	assert(destination_node != INVALID_DIRECTION);
+
 	return destination_node;
+}
+
+
+void cleanup_config(void)
+{
+	assert(node_config == NULL); // Check if all LPs were configured properly, otherwise the simulation is invalid
+
+	free(edge_config);
+	ReleaseTopology(topology);
 }

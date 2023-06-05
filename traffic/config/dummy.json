@@ -1,0 +1,30 @@
+{
+  "num_nodes": 3,
+  "num_edges": 2,
+  "nodes": {
+    "0": {
+      "enter_freq": 15.0,
+      "leave_prob": 0
+    },
+    "1": {
+      "enter_freq": 0,
+      "leave_prob": 0
+    },
+    "2": {
+      "enter_freq": 0,
+      "leave_prob": 1
+    }
+  },
+  "edges": {
+    "3": {
+      "source": 0,
+      "target": 1,
+      "length": "1"
+    },
+    "4": {
+      "source": 1,
+      "target": 2,
+      "length": "1"
+    }
+  }
+}

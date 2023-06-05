@@ -20,34 +20,29 @@
 #define DAY 86400
 
 // Execution time must be specified in seconds
-#ifndef TOTAL_SIMULATION_TIME
 #define TOTAL_SIMULATION_TIME (1 * DAY)
-#endif
 
 // Lunghezza macchina: 4.20m + 0.80m distanza di sicurezza = 5m
 // Unità di lunghezza in km
 // Due corsie
-#ifndef CARS_PER_UNIT_LENGTH
 #define CARS_PER_UNIT_LENGTH 400
-#endif
 
 // A junction has no actual length, yet cars can be queued in it
-#ifndef CARS_PER_JUNCTION
 #define CARS_PER_JUNCTION 10
-#endif
 
 // In Km/h.
-#ifndef AVERAGE_SPEED
-#define AVERAGE_SPEED 110
-#endif
-#define MIN_SPEED 20
+#define AVERAGE_SPEED 60
 
 #define SPEED_SIGMA 20.0
 
 #define ACCIDENT_PROBABILITY 0.15
 #define ACCIDENT_DURATION 3600 // one hour on average
 #define ACCIDENT_SIGMA 30
-#define ACCIDENT_LEAVE_TIME 20 // Exponential mean to compute the time increment to leave after an accident
+
+#define JUNCTION_TRAVERSE_MIN 1 // in seconds
+#define JUNCTION_TRAVERSE 60    // in seconds
+
+#define ACCIDENT_LEAVE_TIME 20  // Exponential mean to compute the time increment to leave after an accident
 
 #define D_EQUAL(a, b) (fabs((a) - (b)) < DBL_EPSILON)
 #define D_EQUAL_ZERO(a) (fabs(a) < DBL_EPSILON)
@@ -68,7 +63,7 @@ struct state {
 		};
 	};
 	unsigned int total_queue_slots;
-	unsigned int queued_elements;
+	unsigned int enqueued_cars;
 	unsigned long long int car_monotonic_counter;
 	struct vehicle *queue;
 };
@@ -76,10 +71,6 @@ struct state {
 struct car_arrival_event {
 	lp_id_t from;
 	lp_id_t destination; // Used to tell an edge what is the node we are heading to.
-	bool injection;      // Tells whether the car is entering the road network or not
-};
-
-struct car_leave_event {
-	lp_id_t destination; // Used to tell an edge what is the node we are heading to.
 	unsigned long long car_id;
+	bool injection;      // Tells whether the car is entering the road network or not
 };

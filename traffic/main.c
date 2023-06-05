@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <ROOT-Sim.h>
+#include <assert.h>
 
 #include "config.h"
 #include "model.h"
@@ -28,7 +29,7 @@ static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const v
 			SetState(state);
 
 			// Configure the LP from the parsed JSON file
-			if(IS_NODE(me)) {
+			if(IS_JUNCTION(me)) {
 				struct node_config c;
 				get_node_config(me, &c);
 				state->enter_freq = c.enter_freq;
@@ -39,6 +40,8 @@ static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const v
 			} else {
 				struct edge_config c;
 				get_edge_config(me, &c);
+				assert(me == c.id);
+
 				state->road_len = c.length;
 				state->total_queue_slots = (int)(state->road_len * CARS_PER_UNIT_LENGTH);
 			}
@@ -54,7 +57,7 @@ static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const v
 			break;
 
 		case LEAVE:
-			process_car_leave(me, state, (struct car_leave_event *)content);
+			process_car_leave(me, state);
 			break;
 
 		case FINISH_ACCIDENT:
@@ -81,13 +84,14 @@ struct simulation_configuration conf = {
     .log_level = LOG_INFO,
     .ckpt_interval = 0,
     .core_binding = true,
-    .serial = false,
+    .serial = true,
     .dispatcher = ProcessEvent,
     .committed = CanEnd,
 };
 
 int main(int argc, char **argv)
 {
+	int ret;
 	FILE *conf_file;
 
 	// Set the locale to use dots as the decimal separator, as the json config file should adhere to it.
@@ -113,5 +117,9 @@ int main(int argc, char **argv)
 	conf.termination_time = TOTAL_SIMULATION_TIME;
 
 	RootsimInit(&conf);
-	return RootsimRun();
+	ret = RootsimRun();
+
+	cleanup_config();
+
+	return ret;
 }
