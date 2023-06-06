@@ -13,11 +13,12 @@ static unsigned long long get_mark(unsigned long long k1, unsigned long long k2)
 	return (((k1 + k2) * (k1 + k2 + 1) / 2) + k2);
 }
 
-struct vehicle *populate_car(lp_id_t me, lp_id_t from, struct state *state, struct car_arrival_event *event)
+struct vehicle *populate_car(lp_id_t me, struct state *state, struct car_arrival_event *event)
 {
 	struct vehicle *new_car = rs_malloc(sizeof(*new_car));
 	memset(new_car, 0, sizeof(*new_car));
-	new_car->from = from;
+	new_car->from = event->from;
+	new_car->to = event->to;
 	new_car->arrival_time = state->lvt;
 
 	if(event->injection)
@@ -40,10 +41,12 @@ void update_car_speed(lp_id_t me, struct state *state, struct vehicle *car)
 	// Junctions do not have an actual "size"
 	if(IS_JUNCTION(me)) {
 		car->leave_time = state->lvt + JUNCTION_TRAVERSE_MIN + Expent(&state->seed, JUNCTION_TRAVERSE);
+		return;
 	}
 
 	// Compute the traffic scaling factor
 	traffic = (double)state->enqueued_cars / (double)state->total_queue_slots;
+	traffic = traffic < 0 ? 1 : traffic;
 
 	// Compute the speed
 	if(car->speed == 0) {

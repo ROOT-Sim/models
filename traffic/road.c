@@ -8,6 +8,7 @@
 #include "model.h"
 #include "road.h"
 #include "statistics.h"
+#include "jam.h"
 
 // With a certain probability, cause an accident encompassing a random amount of travelling cars.
 static void cause_accident(struct state *state, lp_id_t me)
@@ -81,14 +82,14 @@ static void cause_accident(struct state *state, lp_id_t me)
 	}
 }
 
-static struct vehicle *reorder_queue(lp_id_t me, struct vehicle *head, struct state *state)
+static void reorder_queue(lp_id_t me, struct vehicle **head, struct state *state)
 {
 	simtime_t now = state->lvt;
 	struct vehicle *curr;
 	struct vehicle *prev;
 
 	// Update speed and leave time
-	curr = head;
+	curr = *head;
 	while(curr != NULL) {
 		update_car_speed(me, state, curr);
 		curr = curr->next;
@@ -98,13 +99,14 @@ static struct vehicle *reorder_queue(lp_id_t me, struct vehicle *head, struct st
 	bool didSwap = false;
 	for(didSwap = true; didSwap;) {
 		didSwap = false;
-		prev = head;
-		for(curr = head; (curr != NULL && curr->next != NULL); curr = curr->next) {
+		prev = NULL; // Set prev to NULL for the first iteration
+		curr = *head;
+		while(curr != NULL && curr->next != NULL) {
 			if(curr->leave_time > curr->next->leave_time) {
-				if(head == curr) {
-					head = curr->next;
-					curr->next = head->next;
-					head->next = curr;
+				if(*head == curr) {
+					*head = curr->next;
+					curr->next = (*head)->next;
+					(*head)->next = curr;
 				} else {
 					prev->next = curr->next;
 					curr->next = prev->next->next;
@@ -112,33 +114,31 @@ static struct vehicle *reorder_queue(lp_id_t me, struct vehicle *head, struct st
 				}
 				didSwap = true;
 			}
-
 			prev = curr;
+			curr = curr->next;
 		}
 	}
 
 	// Update the portion of traveled space
-	curr = head;
+	curr = *head;
 	while(curr != NULL) {
 		curr->traveled = (now - curr->arrival_time) / (curr->leave_time - curr->arrival_time);
 		curr = curr->next;
 	}
-
-	return head;
 }
 
 
-static void car_enqueue(lp_id_t me, lp_id_t from, struct state *state, struct car_arrival_event *event)
+static void car_enqueue(lp_id_t me, struct state *state, struct car_arrival_event *event)
 {
 	struct vehicle *new_car;
 
 	// Create the car node
-	new_car = populate_car(me, from, state, event);
+	new_car = populate_car(me, state, event);
 
 	new_car->next = state->queue;
 	state->queue = new_car;
 	state->enqueued_cars++;
-	state->queue = reorder_queue(me, state->queue, state);
+	reorder_queue(me, &state->queue, state);
 }
 
 
@@ -171,6 +171,11 @@ void inject_new_car(lp_id_t me, struct state *state)
 	// Entering timestamps distributed according to an Erlang distribution.
 	timestamp = state->lvt + (simtime_t)(Expent(&state->seed, state->enter_freq));
 
+	// Account for notified jams
+	if(timestamp < state->slowdown_injection_until) {
+		timestamp = state->slowdown_injection_until;
+	}
+
 	// Send me the inject event
 	new_evt.from = me;
 	new_evt.injection = true;
@@ -185,21 +190,22 @@ void process_car_arrival(lp_id_t me, struct state *state, struct car_arrival_eve
 		return;
 	}
 
-	car_enqueue(me, event->from, state, event);
-
-	if(state->enqueued_cars < state->total_queue_slots) {
-		ScheduleNewEvent(me, state->queue->leave_time, LEAVE, NULL, 0); // TODO: retractable events
-	} else {
-		fprintf(stderr, "Object queue full: %s\n", IS_JUNCTION(me) ? "JUNCTION" : "ROAD");
-		abort();
-	}
-
-	//	cause_accident(state, me);
-
 	// If the arrival is related to a new car entering the road system, schedule the next car entering event
 	if(event->injection && IS_JUNCTION(me)) {
 		inject_new_car(me, state);
+
+		if(state->slowdown_injection_until > 0)
+			state->slowdown_injection_until = 0;
 	}
+
+	car_enqueue(me, state, event);
+	ScheduleNewEvent(me, state->queue->leave_time, LEAVE, NULL, 0); // TODO: retractable events would be useful here
+
+	if(state->enqueued_cars > JAM_START_FACTOR * state->total_queue_slots) {
+		handle_detected_jam(me, state, event);
+	}
+
+	//	cause_accident(state, me);
 }
 
 void process_car_leave(lp_id_t me, struct state *state)
@@ -209,7 +215,7 @@ void process_car_leave(lp_id_t me, struct state *state)
 
 	struct vehicle **curr_car_ptr = &(state->queue);
 
-	while(*curr_car_ptr != NULL && (*curr_car_ptr)->leave_time <= state->lvt) {
+	while(*curr_car_ptr != NULL && (*curr_car_ptr)->leave_time == state->lvt) {
 		if((*curr_car_ptr)->accident) {
 			curr_car_ptr = &((*curr_car_ptr)->next);
 			continue;
@@ -219,22 +225,42 @@ void process_car_leave(lp_id_t me, struct state *state)
 		*curr_car_ptr = dequeued_car->next;
 		state->enqueued_cars--;
 
-		new_event.from = me;
+		update_mean(state->leave_mean, state->lvt);
+
 		new_event.injection = false;
 		new_event.car_id = dequeued_car->car_id;
 
 		if(IS_JUNCTION(me)) {
+			new_event.from = me;
+
 			do {
-				new_event.destination = get_random_destination(me);
-			} while(new_event.destination == dequeued_car->from);
+				new_event.to = get_random_destination(me);
+			} while(new_event.to == dequeued_car->from);
 
 			// Must pass through the connecting edge
-			receiver = get_path_towards(me, new_event.destination);
+			receiver = new_event.road = get_path_towards(me, new_event.to);
 		} else {
-			receiver = new_event.destination;
+			new_event.from = dequeued_car->from;
+			receiver = dequeued_car->to;
 		}
 
 		ScheduleNewEvent(receiver, dequeued_car->leave_time, ARRIVAL, &new_event, sizeof(new_event));
 		rs_free(dequeued_car);
+	}
+}
+
+void slowdown_cars_for_jam(lp_id_t me, struct state *state, simtime_t until)
+{
+	struct vehicle *curr_car = state->queue;
+	simtime_t delay = until - curr_car->leave_time;
+
+	if(delay > 0) {
+		while(curr_car != NULL) {
+			curr_car->leave_time += delay;
+			curr_car = curr_car->next;
+		}
+
+		ScheduleNewEvent(me, state->queue->leave_time, LEAVE, NULL,
+		    0); // TODO: retractable events would be useful here
 	}
 }

@@ -9,8 +9,9 @@
 #include "config.h"
 #include "model.h"
 #include "road.h"
+#include "jam.h"
 
-static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const void *content, unsigned size, void *s)
+static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const void *payload, unsigned size, void *s)
 {
 	struct state *state = (struct state *)s;
 	if(state != NULL) {
@@ -25,7 +26,12 @@ static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const v
 				exit(EXIT_FAILURE);
 			}
 			memset(state, 0, sizeof(*state));
+
 			initialize_stream(me, &state->seed);
+
+			state->leave_mean = rs_malloc(sizeof(*state->leave_mean));
+			memset(state->leave_mean, 0, sizeof(*state->leave_mean));
+
 			SetState(state);
 
 			// Configure the LP from the parsed JSON file
@@ -49,15 +55,20 @@ static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const v
 			break;
 
 		case LP_FINI:
-			// no-op
+			rs_free(state->leave_mean);
+			rs_free(state);
 			break;
 
 		case ARRIVAL:
-			process_car_arrival(me, state, (struct car_arrival_event *)content);
+			process_car_arrival(me, state, (struct car_arrival_event *)payload);
 			break;
 
 		case LEAVE:
 			process_car_leave(me, state);
+			break;
+
+		case JAM:
+			handle_notified_jam(me, state, (struct jam_notify_event *)payload);
 			break;
 
 		case FINISH_ACCIDENT:

@@ -1,5 +1,5 @@
 
-add_executable(traffic main.c config.c road.c road.h car.c car.h statistics.c statistics.h)
+add_executable(traffic main.c config.c road.c car.c statistics.c jam.c)
 target_include_directories(traffic PRIVATE
         ${ROOTSIM_CORE_INCLUDE_PATH}
         ${ROOTSIM_RNG_INCLUDE_PATH}

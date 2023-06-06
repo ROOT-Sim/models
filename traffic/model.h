@@ -32,7 +32,6 @@
 
 // In Km/h.
 #define AVERAGE_SPEED 60
-
 #define SPEED_SIGMA 20.0
 
 #define ACCIDENT_PROBABILITY 0.15
@@ -49,17 +48,28 @@
 #define D_DIFFER(a, b) (fabs((a) - (b)) >= DBL_EPSILON)
 #define D_DIFFER_ZERO(a) (fabs(a) >= DBL_EPSILON)
 
-enum events { ARRIVAL, LEAVE, FINISH_ACCIDENT };
+#define JAM_START_FACTOR 0.9
+#define JAM_END_FACTOR 0.75
+
+enum events { JAM, ARRIVAL, FINISH_ACCIDENT, LEAVE };
+
+struct mean_estimator;
 
 struct state {
 	simtime_t lvt;
 	struct rng_t seed;
 	bool accident;
+	struct mean_estimator *leave_mean;
 	union {
-		double road_len;
+		// Road-specific simulation state
+		struct {
+			double road_len;
+		};
+		// Junction-specific simulation state
 		struct {
 			double enter_freq;
 			double leave_prob;
+			simtime_t slowdown_injection_until;
 		};
 	};
 	unsigned int total_queue_slots;
@@ -69,8 +79,14 @@ struct state {
 };
 
 struct car_arrival_event {
-	lp_id_t from;
-	lp_id_t destination; // Used to tell an edge what is the node we are heading to.
-	unsigned long long car_id;
-	bool injection;      // Tells whether the car is entering the road network or not
+	lp_id_t from;              // The node the car is coming from.
+	lp_id_t road;              // The edge used to reach the destination from the source.
+	lp_id_t to;                // Used to tell an edge what is the node we are heading to.
+	unsigned long long car_id; // Unique car id in the entire simulation.
+	bool injection;            // Tells whether the car is entering the road network or not.
+};
+
+struct jam_notify_event {
+	lp_id_t from;    // The LP notifying the jam
+	simtime_t until; // An estimated time when the jam will end
 };

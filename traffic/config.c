@@ -348,8 +348,10 @@ again:
 void get_node_config(lp_id_t me, struct node_config *c)
 {
 	memcpy(c, &node_config[me], sizeof(node_config[me]));
-	if(++count_configured_nodes == conf_num_nodes)
+	if(++count_configured_nodes == conf_num_nodes) {
 		free(node_config);
+		node_config = NULL;
+	}
 }
 
 void get_edge_config(lp_id_t me, struct edge_config *c)
