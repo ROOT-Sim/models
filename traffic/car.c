@@ -76,7 +76,8 @@ bool check_car_leaving(struct state *state, lp_id_t from, lp_id_t me)
 	}
 
 	// If this is an end node, and the car did not join the highway from here...
-	if(count_neighbours(me) == 1 && from != me) {
+	unsigned long count = count_neighbours(me);
+	if(count == 1 && from != me) {
 		// ...then the car has left.
 		return true;
 	}

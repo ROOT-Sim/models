@@ -378,7 +378,6 @@ lp_id_t get_random_destination(lp_id_t me)
 {
 	assert(IS_JUNCTION(me));
 	lp_id_t destination_node = GetReceiver(topology, me, DIRECTION_RANDOM);
-	assert(destination_node != INVALID_DIRECTION);
 
 	return destination_node;
 }

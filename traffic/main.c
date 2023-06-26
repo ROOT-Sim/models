@@ -95,9 +95,10 @@ struct simulation_configuration conf = {
     .log_level = LOG_INFO,
     .ckpt_interval = 0,
     .core_binding = true,
-    .serial = true,
+    .serial = false,
     .dispatcher = ProcessEvent,
     .committed = CanEnd,
+    .termination_time = TOTAL_SIMULATION_TIME,
 };
 
 int main(int argc, char **argv)
@@ -125,7 +126,6 @@ int main(int argc, char **argv)
 	conf.lps = process_configuration_file(conf_file);
 	puts("done.");
 	conf.stats_file = argv[0];
-	conf.termination_time = TOTAL_SIMULATION_TIME;
 
 	RootsimInit(&conf);
 	ret = RootsimRun();

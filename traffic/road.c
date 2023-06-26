@@ -1,7 +1,7 @@
 #include <ROOT-Sim.h>
 #include <ROOT-Sim/random.h>
+#include <ROOT-Sim/topology.h>
 #include <string.h>
-#include <assert.h>
 
 #include "car.h"
 #include "config.h"
@@ -236,6 +236,13 @@ void process_car_leave(lp_id_t me, struct state *state)
 			do {
 				new_event.to = get_random_destination(me);
 			} while(new_event.to == dequeued_car->from);
+
+			if(new_event.to == INVALID_DIRECTION) {
+				// If a topology has sink nodes with non-zero enter probability, the spurious car cannot
+				// move.
+				rs_free(dequeued_car);
+				return;
+			}
 
 			// Must pass through the connecting edge
 			receiver = new_event.road = get_path_towards(me, new_event.to);
