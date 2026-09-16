@@ -1,8 +1,9 @@
 #pragma once
 #include <stdbool.h>
 #include <ROOT-Sim.h>
+#include "abm.h"
 
-enum _bug_events_t { PRODUCE_FOOD = INIT + 1, SPAWN_BUG, BUG_LEAVING, BUG_DELAYED_VISIT, BUG_VISIT, BUG_TRAVERSE };
+enum _bug_events_t { PRODUCE_FOOD = 1, SPAWN_BUG, BUG_LEAVING, BUG_DELAYED_VISIT, BUG_VISIT, BUG_TRAVERSE };
 
 #define TIME_STEP 1.0
 #define MAX_FOOD_PRODUCTION_RATE 2

@@ -1,17 +1,17 @@
 #pragma once
-#ifndef _TCAR_H
-#define _TCAR_H
-
+#ifndef _SUGARSCAPE_H
+#define _SUGARSCAPE_H
 
 #include <ROOT-Sim.h>
+#include "abm.h"
 
 #define TIME_STEP 5.0
 
-enum _event_type { SUGAR_VISIT = INIT + 1, SUGAR_INIT, SUGAR_LEAVE, SUGAR_REFILL, _TRAVERSE };
+enum _event_type { SUGAR_VISIT = 1, SUGAR_INIT, SUGAR_LEAVE, SUGAR_REFILL, _TRAVERSE };
 
 #define SOURCEBASERADIUS 5
 
-#define INIT_EATERS 100;
+#define INIT_EATERS 10
 
 #define MAX_INITIAL_WEALTH 25
 #define MIN_INITIAL_WEALTH 5
@@ -36,5 +36,4 @@ typedef struct _region_t {
 	} n;
 } region_t;
 
-
-#endif /* _ANT_ROBOT_H */
+#endif /* _SUGARSCAPE_H */

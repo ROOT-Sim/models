@@ -3,98 +3,47 @@
 #include <strings.h>
 #include <math.h>
 #include <ROOT-Sim.h>
+#include <ROOT-Sim/random.h>
+#include <ROOT-Sim/topology.h>
 
-extern bool pcs_statistics, fading_check, variable_ta;
-extern unsigned complete_calls, channels_per_cell;
-extern double ref_ta, ta_duration, ta_change;
-
+#include "argparse.h"
 #include "pcs.h"
 
-bool pcs_statistics = false,
-     fading_check = false, // Is the model set up to periodically recompute the fading of all ongoing calls?
-    variable_ta = false;   // Should the call interarrival frequency change depending on the current time?
-unsigned complete_calls = COMPLETE_CALLS,
-	 channels_per_cell = CHANNELS_PER_CELL; // Total channels per each cell
-double ref_ta = TA,                             // Initial call interarrival frequency (same for all cells)
-    ta_duration = TA_DURATION,                  // Average duration of a call
-    ta_change = TA_CHANGE;                      // Average time after which a call is diverted to another cell
+bool pcs_statistics = false;
+bool fading_check = false;
+bool variable_ta = false;
+unsigned complete_calls = COMPLETE_CALLS;
+unsigned channels_per_cell = CHANNELS_PER_CELL;
+double ref_ta = TA;
+double ta_duration = TA_DURATION;
+double ta_change = TA_CHANGE;
 
-enum {
-	OPT_STAT = 128, /// this tells argp to not assign short options
-	OPT_TA,
-	OPT_TAD,
-	OPT_TAC,
-	OPT_CPC,
-	OPT_CC,
-	OPT_FR,
-	OPT_VTA,
+static struct topology *pcs_topology = NULL;
+
+static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const void *content, unsigned size, void *ptr);
+static bool CanEnd(lp_id_t me, const void *snapshot);
+
+static struct simulation_configuration conf = {
+    .lps = 16,
+    .n_threads = 0,
+    .termination_time = 1000,
+    .gvt_period = 1000,
+    .log_level = LOG_INFO,
+    .stats_file = "pcs",
+    .ckpt_interval = 0,
+    .core_binding = true,
+    .serial = false,
+    .synchronization = TIME_WARP,
+    .dispatcher = ProcessEvent,
+    .committed = CanEnd,
 };
 
-const struct argp_option model_options[] = {{"pcs-statistics", OPT_STAT, NULL, 0, NULL, 0},
-    {"ta", OPT_TA, "FLOAT", 0, NULL, 0}, {"ta-duration", OPT_TAD, "FLOAT", 0, NULL, 0},
-    {"ta-change", OPT_TAC, "FLOAT", 0, NULL, 0}, {"channels-per-cell", OPT_CPC, "UINT", 0, NULL, 0},
-    {"complete-calls", OPT_CC, "INT", 0, NULL, 0}, {"fading-recheck", OPT_FR, NULL, 0, NULL, 0},
-    {"variable-ta", OPT_VTA, NULL, 0, NULL, 0}, {0}};
-
-// this macro abuse looks so elegant though...
-#define HANDLE_CASE(label, fmt, var)                                                                                   \
-	case label:                                                                                                    \
-		if(sscanf(arg, fmt, &var) != 1) {                                                                      \
-			return ARGP_ERR_UNKNOWN;                                                                       \
-		}                                                                                                      \
-		break
-
-static error_t model_parse(int key, char *arg, struct argp_state *state)
-{
-	(void)state;
-
-	switch(key) {
-		HANDLE_CASE(OPT_TA, "%lf", ref_ta);
-		HANDLE_CASE(OPT_TAD, "%lf", ta_duration);
-		HANDLE_CASE(OPT_TAC, "%lf", ta_change);
-		HANDLE_CASE(OPT_CPC, "%u", channels_per_cell);
-		HANDLE_CASE(OPT_CC, "%u", complete_calls);
-
-		case OPT_STAT:
-			pcs_statistics = true;
-			break;
-		case OPT_FR:
-			fading_check = true;
-			break;
-			;
-		case OPT_VTA:
-			variable_ta = true;
-			break;
-
-		case ARGP_KEY_SUCCESS:
-			printf(
-			    "CURRENT CONFIGURATION:\ncomplete calls: %d\nTA: %f\nta_duration: %f\nta_change: %f\nchannels_per_cell: %d\nfading_recheck: %d\nvariable_ta: %d\n",
-			    complete_calls, ref_ta, ta_duration, ta_change, channels_per_cell, fading_check,
-			    variable_ta);
-			fflush(stdout);
-			break;
-		default:
-			return ARGP_ERR_UNKNOWN;
-	}
-	return 0;
-}
-
-#undef HANDLE_CASE
-
-struct argp model_argp = {model_options, model_parse, NULL, NULL, NULL, NULL, NULL};
-
-struct _topology_settings_t topology_settings = {.default_geometry = TOPOLOGY_HEXAGON};
-
-void ProcessEvent(unsigned int me, simtime_t now, int event_type, event_content_type *event_content, unsigned int size,
-    void *ptr)
+static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const void *content, unsigned size, void *ptr)
 {
 	(void)size;
-
 	unsigned int w;
-
-	// printf("%d executing %d at %f\n", me, event_type, now);
-
-	event_content_type new_event_content;
+	event_content_type new_event_content = {0};
+	const event_content_type *event_content = (const event_content_type *)content;
 
 	new_event_content.cell = -1;
 	new_event_content.channel = -1;
@@ -103,56 +52,49 @@ void ProcessEvent(unsigned int me, simtime_t now, int event_type, event_content_
 	simtime_t handoff_time;
 	simtime_t timestamp = 0;
 
-	lp_state_type *state;
-	state = (lp_state_type *)ptr;
+	lp_state_type *state = (lp_state_type *)ptr;
 
 	if(state != NULL) {
 		state->lvt = now;
 		state->executed_events++;
 	}
 
-	//	printf("INIT=%d, START_CALL=%d, END_CALL=%d, HANDOFF_LEAVE=%d, HANDOFF_RECV=%d, FADING_RECHECK=%d\n",
-	// INIT, START_CALL, END_CALL, HANDOFF_LEAVE, HANDOFF_RECV, FADING_RECHECK); 	printf("Event type = %d (time
-	//%f)\n", event_type, now);
 	switch(event_type) {
-		case INIT:
-			//			printf("INIT\n");
-			// Initialize the LP's state
-			state = (lp_state_type *)malloc(sizeof(lp_state_type));
+		case LP_INIT:
+			state = (lp_state_type *)rs_malloc(sizeof(lp_state_type));
 			if(state == NULL) {
 				printf("Out of memory!\n");
-				exit(EXIT_FAILURE);
+				abort();
 			}
 
+			initialize_stream((unsigned int)me, &state->seed);
 			SetState(state);
 
-			bzero(state, sizeof(lp_state_type));
+			memset(state, 0, sizeof(lp_state_type));
+			initialize_stream((unsigned int)me, &state->seed);
 
 			state->channel_counter = channels_per_cell;
 			state->ta = ref_ta;
-			state->me = me;
+			state->me = (unsigned int)me;
 
-			// Setup channel state
-			state->channel_state = malloc(sizeof(unsigned int) * 2 * (CHANNELS_PER_CELL / BITS + 1));
+			state->channel_state = rs_malloc(sizeof(unsigned int) * 2 * (CHANNELS_PER_CELL / BITS + 1));
+			if(state->channel_state == NULL) {
+				abort();
+			}
 			for(w = 0; w < state->channel_counter / (sizeof(int) * 8) + 1; w++)
 				state->channel_state[w] = 0;
 
-			// Start the simulation
-			timestamp = (simtime_t)(20 * Random());
+			timestamp = (simtime_t)(20 * Random(&state->seed));
 			ScheduleNewEvent(me, timestamp, START_CALL, NULL, 0);
 
-			// If needed, start the first fading recheck
-			// if (state->fading_recheck) {
-			timestamp = (simtime_t)(FADING_RECHECK_FREQUENCY * Random());
+			timestamp = (simtime_t)(FADING_RECHECK_FREQUENCY * Random(&state->seed));
 			ScheduleNewEvent(me, timestamp, FADING_RECHECK, NULL, 0);
-			//	}
-
 			break;
 
+		case LP_FINI:
+			break;
 
 		case START_CALL:
-
-			//			printf("START_CALL\n");
 			state->arriving_calls++;
 
 			if(state->channel_counter == 0) {
@@ -160,179 +102,161 @@ void ProcessEvent(unsigned int me, simtime_t now, int event_type, event_content_
 			} else {
 				state->channel_counter--;
 
-				new_event_content.channel = allocation(state);
-				new_event_content.from = me;
+				new_event_content.channel = allocation(state, channels_per_cell);
+				new_event_content.from = (unsigned int)me;
 				new_event_content.sent_at = now;
 
-				//				printf("(%d) allocation %d at %f\n", me,
-				// new_event_content.channel, now);
-
-				// Determine call duration
 				switch(DURATION_DISTRIBUTION) {
 					case UNIFORM:
 						new_event_content.call_term_time =
-						    now + (simtime_t)(ta_duration * Random());
+						    now + 0.0001 + (simtime_t)(ta_duration * Random(&state->seed));
 						break;
-
 					case EXPONENTIAL:
 						new_event_content.call_term_time =
-						    now + (simtime_t)(Expent(ta_duration));
+						    now + 0.0001 + (simtime_t)(Expent(&state->seed, ta_duration));
 						break;
-
 					default:
-						new_event_content.call_term_time = now + (simtime_t)(5 * Random());
+						new_event_content.call_term_time = now + 0.0001 + (simtime_t)(5 * Random(&state->seed));
 				}
 
-				// Determine whether the call will be handed-off or not
 				switch(CELL_CHANGE_DISTRIBUTION) {
 					case UNIFORM:
-
-						handoff_time = now + (simtime_t)((ta_change)*Random());
+						handoff_time = now + 0.0001 + (simtime_t)((ta_change)*Random(&state->seed));
 						break;
-
 					case EXPONENTIAL:
-						handoff_time = now + (simtime_t)(Expent(ta_change));
+						handoff_time = now + 0.0001 + (simtime_t)(Expent(&state->seed, ta_change));
 						break;
-
 					default:
-						handoff_time = now + (simtime_t)(5 * Random());
+						handoff_time = now + 0.0001 + (simtime_t)(5 * Random(&state->seed));
 				}
 
 				if(new_event_content.call_term_time < handoff_time) {
 					ScheduleNewEvent(me, new_event_content.call_term_time, END_CALL,
 					    &new_event_content, sizeof(new_event_content));
 				} else {
-					new_event_content.cell = FindReceiver();
+					lp_id_t r = GetReceiver(pcs_topology, me, DIRECTION_RANDOM);
+					new_event_content.cell = (r != INVALID_DIRECTION) ? (int)r : (int)me;
 					ScheduleNewEvent(me, handoff_time, HANDOFF_LEAVE, &new_event_content,
 					    sizeof(new_event_content));
 				}
 			}
 
-
 			if(variable_ta)
 				state->ta = recompute_ta(ref_ta, now);
 
-			// Determine the time at which a new call will be issued
 			switch(DISTRIBUTION) {
 				case UNIFORM:
-					timestamp = now + (simtime_t)(state->ta * Random());
+					timestamp = now + 0.0001 + (simtime_t)(state->ta * Random(&state->seed));
 					break;
-
 				case EXPONENTIAL:
-					timestamp = now + (simtime_t)(Expent(state->ta));
+					timestamp = now + 0.0001 + (simtime_t)(Expent(&state->seed, state->ta));
 					break;
-
 				default:
-					timestamp = now + (simtime_t)(5 * Random());
+					timestamp = now + 0.0001 + (simtime_t)(5 * Random(&state->seed));
 			}
 
 			ScheduleNewEvent(me, timestamp, START_CALL, NULL, 0);
-
 			break;
 
 		case END_CALL:
-
-			//			printf("END_CALL\n");
 			state->channel_counter++;
 			state->complete_calls++;
-			deallocation(me, state, event_content->channel, now);
-
+			if(event_content != NULL) {
+				deallocation((unsigned int)me, state, event_content->channel, now);
+			}
 			break;
 
 		case HANDOFF_LEAVE:
-
-			//			printf("HANDOFF_LEAVE");
 			state->channel_counter++;
 			state->leaving_handoffs++;
-			deallocation(me, state, event_content->channel, now);
-
-			new_event_content.call_term_time = event_content->call_term_time;
-			new_event_content.from = me;
-			new_event_content.dummy = &(state->dummy);
-			ScheduleNewEvent(event_content->cell, now, HANDOFF_RECV, &new_event_content,
-			    sizeof(new_event_content));
+			if(event_content != NULL) {
+				deallocation((unsigned int)me, state, event_content->channel, now);
+				new_event_content.call_term_time = event_content->call_term_time;
+				new_event_content.from = (unsigned int)me;
+				new_event_content.dummy = &(state->dummy);
+				ScheduleNewEvent((lp_id_t)event_content->cell, now + 0.0001, HANDOFF_RECV, &new_event_content,
+				    sizeof(new_event_content));
+			}
 			break;
 
 		case HANDOFF_RECV:
-
 			state->arriving_handoffs++;
 			state->arriving_calls++;
 
-			/*			if(Random() < 0.3 && me == 1 && event_content->from == 2){//&&
-			   state->dummy_flag == false) {
-			                                *(event_content->dummy) = 1;
-			                                state->dummy_flag = true;
-			                                printf("write on %p\n", &state->dummy);
-			                        }
-			*/
 			if(state->channel_counter == 0) {
 				state->blocked_on_handoff++;
 			} else {
 				state->channel_counter--;
 
-				new_event_content.channel = allocation(state);
-				new_event_content.call_term_time = event_content->call_term_time;
-
+				new_event_content.channel = allocation(state, channels_per_cell);
+				if(event_content != NULL) {
+					new_event_content.call_term_time = event_content->call_term_time;
+				}
 
 				switch(CELL_CHANGE_DISTRIBUTION) {
 					case UNIFORM:
-						handoff_time = now + (simtime_t)((ta_change)*Random());
-
+						handoff_time = now + 0.0001 + (simtime_t)((ta_change)*Random(&state->seed));
 						break;
 					case EXPONENTIAL:
-						handoff_time = now + (simtime_t)(Expent(ta_change));
-
+						handoff_time = now + 0.0001 + (simtime_t)(Expent(&state->seed, ta_change));
 						break;
 					default:
-						handoff_time = now + (simtime_t)(5 * Random());
+						handoff_time = now + 0.0001 + (simtime_t)(5 * Random(&state->seed));
 				}
 
 				if(new_event_content.call_term_time < handoff_time) {
 					ScheduleNewEvent(me, new_event_content.call_term_time, END_CALL,
 					    &new_event_content, sizeof(new_event_content));
 				} else {
-					new_event_content.cell = FindReceiver();
+					lp_id_t r = GetReceiver(pcs_topology, me, DIRECTION_RANDOM);
+					new_event_content.cell = (r != INVALID_DIRECTION) ? (int)r : (int)me;
 					ScheduleNewEvent(me, handoff_time, HANDOFF_LEAVE, &new_event_content,
 					    sizeof(new_event_content));
 				}
 			}
-
-
 			break;
-
 
 		case FADING_RECHECK:
-
-			/*
-			                        if(state->check_fading)
-			                                state->check_fading = false;
-			                        else
-			                                state->check_fading = true;
-			*/
-
 			fading_recheck(state);
-
 			timestamp = now + (simtime_t)(FADING_RECHECK_FREQUENCY);
 			ScheduleNewEvent(me, timestamp, FADING_RECHECK, NULL, 0);
-
 			break;
 
-
 		default:
-			fprintf(stdout, "PCS: Unknown event type! (me = %d - event type = %d)\n", me, event_type);
+			fprintf(stdout, "PCS: Unknown event type! (me = %llu - event type = %u)\n", (unsigned long long)me, event_type);
 			abort();
 	}
 }
 
-
-bool OnGVT(unsigned int me, lp_state_type *snapshot)
+static bool CanEnd(lp_id_t me, const void *snapshot)
 {
 	(void)me;
+	const lp_state_type *s = (const lp_state_type *)snapshot;
+	if (s && s->complete_calls >= complete_calls)
+		return true;
+	return false;
+}
 
-	printf("\t\t[%d] OnGVT: complete calls is %d (%f%%)\n", me, snapshot->complete_calls,
-	    (double)snapshot->complete_calls / complete_calls);
+int main(int argc, char **argv)
+{
+	struct model_cli_options opt;
+	init_default_cli_options(&opt, 16, 500);
+	parse_model_cli_options(argc, argv, &opt, &conf);
 
-	if(snapshot->complete_calls < complete_calls)
-		return false;
-	return true;
+	unsigned int width = (unsigned int)ceil(sqrt((double)conf.lps));
+	if (width == 0) width = 1;
+	unsigned int height = (unsigned int)ceil((double)conf.lps / width);
+	if (height == 0) height = 1;
+
+	pcs_topology = InitializeTopology(TOPOLOGY_HEXAGON, width, height);
+
+	RootsimInit(&conf);
+	int ret = RootsimRun();
+
+	if (pcs_topology) {
+		ReleaseTopology(pcs_topology);
+		pcs_topology = NULL;
+	}
+
+	return ret;
 }

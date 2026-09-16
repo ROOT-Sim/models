@@ -6,8 +6,26 @@
 #include "forwarding_engine.h"
 #include "parameters.h"
 #include <ROOT-Sim.h>
+#include <ROOT-Sim/random.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <math.h>
 #include <pthread.h>
+
+extern _Thread_local struct rng_t *current_sensors_seed;
+extern unsigned int n_prc_tot;
+
+static inline int sensors_random_range(int min, int max) {
+    if (current_sensors_seed) return RandomRange(current_sensors_seed, min, max);
+    return min + (rand() % (max - min + 1));
+}
+static inline double sensors_random(void) {
+    if (current_sensors_seed) return Random(current_sensors_seed);
+    return (double)rand() / (double)RAND_MAX;
+}
+#define RandomRange(min, max) sensors_random_range(min, max)
+#define Random() sensors_random()
 
 /*
  * EVENT TYPES
@@ -270,6 +288,7 @@ typedef struct _node_statistics {
  */
 
 typedef struct _node_state {
+	struct rng_t seed;
 	bool is_retransmitting;
 
 	/* RADIO FIELDS - start */

@@ -10,6 +10,29 @@
 
 #include "parameters.h"
 
+#ifndef ARGP_ERR_UNKNOWN
+typedef int error_t;
+#define ARGP_ERR_UNKNOWN 1
+struct argp_state { void *input; };
+struct argp_option {
+	const char *name;
+	int key;
+	const char *arg;
+	int flags;
+	const char *doc;
+	int group;
+};
+struct argp {
+	const struct argp_option *options;
+	error_t (*parser)(int key, char *arg, struct argp_state *state);
+	const char *args_doc;
+	const char *doc;
+	const void *children;
+	char *(*help_filter)(int key, const char *text, void *input);
+	const char *argp_domain;
+};
+#endif
+
 unsigned ctp_root = 0;
 
 char *config_file_path = NULL;
@@ -41,6 +64,7 @@ double data_packet_transmission_offset = DATA_PACKET_RETRANSMISSION_OFFSET,
        send_packet_timer = SEND_PACKET_TIMER, create_packet_timer = CREATE_PACKET_TIMER;
 
 
+#ifdef USE_ARGP
 enum {
 	OPT_ROOT = 128, /// this tells argp to not assign short options
 	OPT_INPUT,
@@ -118,26 +142,61 @@ const struct argp_option model_options[] = {{NULL, 0, NULL, 0, "General paramete
     {"no-route-offset", OPT_F_NRO, "DOUBLE", 0, NULL, 6}, {"send-packet-timer", OPT_F_SPT, "DOUBLE", 0, NULL, 6},
     {"create-packet-timer", OPT_F_CPT, "DOUBLE", 0, NULL, 6}, {0}};
 
-#define HANDLE_ARGP_CASE(label, fmt, var)                                                                              \
-	case label:                                                                                                    \
-		if(sscanf(arg, fmt, &var) != 1) {                                                                      \
-			return ARGP_ERR_UNKNOWN;                                                                       \
-		}                                                                                                      \
+#define HANDLE_ARGP_CASE(case_macro, format, var)                                                                      \
+	case case_macro:                                                                                               \
+		if(sscanf(arg, format, &var) != 1)                                                                     \
+			argp_failure(state, EXIT_FAILURE, 0,                                                           \
+			    "[FATAL ERROR] An error occurred while parsing the option \"%s\": value \"%s\" "           \
+			    "is not valid\n",                                                                          \
+			    state->argv[state->next - 1], arg);                                                        \
 		break
 
 static error_t model_parse(int key, char *arg, struct argp_state *state)
 {
-	(void)state;
 	switch(key) {
+		case OPT_ROOT:
+			if(sscanf(arg, "%u", &ctp_root) != 1)
+				argp_failure(state, EXIT_FAILURE, 0,
+				    "[FATAL ERROR] An error occurred while parsing the option \"%s\": value \"%s\" "
+				    "is not a valid root ID\n",
+				    state->argv[state->next - 1], arg);
+			break;
 		case OPT_INPUT:
 			config_file_path = arg;
 			break;
-
-			HANDLE_ARGP_CASE(OPT_ROOT, "%u", ctp_root);
-			HANDLE_ARGP_CASE(OPT_FLAMBDA, "%lf", failure_lambda);
-			HANDLE_ARGP_CASE(OPT_FTHRESH, "%lf", failure_threshold);
-			HANDLE_ARGP_CASE(OPT_MAXST, "%lf", max_simulation_time);
-			HANDLE_ARGP_CASE(OPT_CPGOAL, "%lu", collected_packets_goal);
+		case OPT_FLAMBDA:
+			if(sscanf(arg, "%lf", &failure_lambda) != 1 || failure_lambda <= 0 || failure_lambda >= 1)
+				argp_failure(state, EXIT_FAILURE, 0,
+				    "[FATAL ERROR] An error occurred while parsing the option \"%s\": value \"%s\" "
+				    "is not valid => \"failure-lambda\" parameter must be a double precision floating "
+				    "point number in range (0, 1)\n",
+				    state->argv[state->next - 1], arg);
+			break;
+		case OPT_FTHRESH:
+			if(sscanf(arg, "%lf", &failure_threshold) != 1 || failure_threshold <= 0 ||
+			    failure_threshold >= 1)
+				argp_failure(state, EXIT_FAILURE, 0,
+				    "[FATAL ERROR] An error occurred while parsing the option \"%s\": value \"%s\" "
+				    "is not valid => \"failure-threshold\" parameter must be a double precision "
+				    "floating point number in range (0, 1)\n",
+				    state->argv[state->next - 1], arg);
+			break;
+		case OPT_MAXST:
+			if(sscanf(arg, "%lf", &max_simulation_time) != 1 || max_simulation_time <= 0)
+				argp_failure(state, EXIT_FAILURE, 0,
+				    "[FATAL ERROR] An error occurred while parsing the option \"%s\": value \"%s\" "
+				    "is not valid => \"max-simulation-time\" parameter must be a strictly positive "
+				    "double precision floating point number\n",
+				    state->argv[state->next - 1], arg);
+			break;
+		case OPT_CPGOAL:
+			if(sscanf(arg, "%lu", &collected_packets_goal) != 1 || collected_packets_goal == 0)
+				argp_failure(state, EXIT_FAILURE, 0,
+				    "[FATAL ERROR] An error occurred while parsing the option \"%s\": value \"%s\" "
+				    "is not valid => \"collected-packets-goal\" parameter must be a strictly positive "
+				    "integer\n",
+				    state->argv[state->next - 1], arg);
+			break;
 
 			HANDLE_ARGP_CASE(OPT_P_WNMEAN, "%lf", white_noise_mean);
 			HANDLE_ARGP_CASE(OPT_P_CHTHRESH, "%lf", channel_free_threshold);
@@ -199,5 +258,6 @@ static error_t model_parse(int key, char *arg, struct argp_state *state)
 #undef HANDLE_ARGP_CASE
 
 struct argp model_argp = {model_options, model_parse, NULL, NULL, NULL, NULL, NULL};
+#endif
 
 /* READ INPUT FILE (ONLY THE ROOT NODE) - end */

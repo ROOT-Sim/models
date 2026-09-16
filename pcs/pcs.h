@@ -1,26 +1,28 @@
-#include <ROOT-Sim.h>
+#pragma once
 
+#include <ROOT-Sim.h>
+#include <ROOT-Sim/random.h>
+#include <ROOT-Sim/topology.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 /* DISTRIBUZIONI TIMESTAMP */
 #define UNIFORM 0
 #define EXPONENTIAL 1
 #define DISTRIBUTION 1
 
-
 #define CHECK_FADING_TIME 10
 #define COMPLETE_CALLS 5000
 #ifndef TA
 #define TA 0.9
 #endif
-// #define TA_DURATION		120
 #define TA_DURATION 60
 #define CHANNELS_PER_CELL 1000
-// #define TA_CHANGE		300.0
 #define TA_CHANGE 150.0
 
 #define CELL_CHANGE_DISTRIBUTION EXPONENTIAL
 #define DURATION_DISTRIBUTION EXPONENTIAL
-
 
 /* Channel states */
 #define CHAN_BUSY 1
@@ -68,13 +70,11 @@ typedef struct _event_content_type {
 #define MAX_POWER 3000
 #define SIR_AIM 10
 
-// Taglia di 16 byte
 typedef struct _sir_data_per_cell {
 	double fading; // Fading of the call
 	double power;  // Power allocated to the call
 } sir_data_per_cell;
 
-// Taglia di 16 byte
 typedef struct _channel {
 	int channel_id;              // Number of the channel
 	sir_data_per_cell *sir_data; // Signal/Interference Ratio data
@@ -82,8 +82,8 @@ typedef struct _channel {
 	struct _channel *prev;
 } channel;
 
-
 typedef struct _lp_state_type {
+	struct rng_t seed;
 	int ecs_count;
 	unsigned int me;
 
@@ -107,7 +107,6 @@ typedef struct _lp_state_type {
 	bool dummy_flag;
 } lp_state_type;
 
-
 #define HOUR 3600
 #define DAY (24 * HOUR)
 #define WEEK (7 * DAY)
@@ -118,7 +117,6 @@ typedef struct _lp_state_type {
 #define AFTERNOON 19 * HOUR
 #define EVENING 21 * HOUR
 
-
 #define EARLY_MORNING_FACTOR 4
 #define MORNING_FACTOR 0.8
 #define LUNCH_FACTOR 2.5
@@ -126,7 +124,6 @@ typedef struct _lp_state_type {
 #define EVENING_FACTOR 2.2
 #define NIGHT_FACTOR 4.5
 #define WEEKEND_FACTOR 5
-
 
 static inline double recompute_ta(double _ref_ta, simtime_t time_now)
 {
@@ -152,24 +149,23 @@ static inline double recompute_ta(double _ref_ta, simtime_t time_now)
 	return _ref_ta * NIGHT_FACTOR;
 }
 
-
-static inline double generate_cross_path_gain(void)
+static inline double generate_cross_path_gain(struct rng_t *seed)
 {
 	double value;
 	double variation;
 
-	variation = 10 * Random();
+	variation = 10 * Random(seed);
 	variation = pow((double)10.0, (variation / 10));
 	value = CROSS_PATH_GAIN * variation;
 	return (value);
 }
 
-static inline double generate_path_gain(void)
+static inline double generate_path_gain(struct rng_t *seed)
 {
 	double value;
 	double variation;
 
-	variation = 10 * Random();
+	variation = 10 * Random(seed);
 	variation = pow((double)10.0, (variation / 10));
 	value = PATH_GAIN * variation;
 	return (value);
@@ -197,14 +193,12 @@ static inline void deallocation(unsigned int me, lp_state_type *pointer, int ch,
 				c->prev->next = c->next;
 		}
 		RESET_CHANNEL(pointer, ch);
-		free(c->sir_data);
-
-		free(c);
+		rs_free(c->sir_data);
+		rs_free(c);
 	} else {
-		printf("(%d) Unable to deallocate on %p, channel is %d at time %f\n", me, c, ch, lvt);
+		printf("(%u) Unable to deallocate on %p, channel is %d at time %f\n", me, (void*)c, ch, lvt);
 		return;
 	}
-	return;
 }
 
 static inline void fading_recheck(lp_state_type *pointer)
@@ -214,12 +208,12 @@ static inline void fading_recheck(lp_state_type *pointer)
 	ch = pointer->channels;
 
 	while(ch != NULL) {
-		ch->sir_data->fading = Expent(1.0);
+		ch->sir_data->fading = Expent(&pointer->seed, 1.0);
 		ch = ch->prev;
 	}
 }
 
-static inline int allocation(lp_state_type *pointer)
+static inline int allocation(lp_state_type *pointer, unsigned int channels_cnt)
 {
 	unsigned int i;
 	int index;
@@ -229,9 +223,9 @@ static inline int allocation(lp_state_type *pointer)
 	channel *c, *ch;
 
 	index = -1;
-	for(i = 0; i < channels_per_cell; i++) {
+	for(i = 0; i < channels_cnt; i++) {
 		if(!CHECK_CHANNEL(pointer, i)) {
-			index = i;
+			index = (int)i;
 			break;
 		}
 	}
@@ -239,18 +233,18 @@ static inline int allocation(lp_state_type *pointer)
 	if(index != -1) {
 		SET_CHANNEL(pointer, index);
 
-		c = (channel *)malloc(sizeof(channel));
+		c = (channel *)rs_malloc(sizeof(channel));
 		if(c == NULL) {
-			printf("malloc error: unable to allocate channel!\n");
+			printf("rs_malloc error: unable to allocate channel!\n");
 			exit(-1);
 		}
 
 		c->next = NULL;
 		c->prev = pointer->channels;
 		c->channel_id = index;
-		c->sir_data = (sir_data_per_cell *)malloc(sizeof(sir_data_per_cell));
+		c->sir_data = (sir_data_per_cell *)rs_malloc(sizeof(sir_data_per_cell));
 		if(c->sir_data == NULL) {
-			printf("malloc error: unable to allocate SIR data!\n");
+			printf("rs_malloc error: unable to allocate SIR data!\n");
 			exit(-1);
 		}
 
@@ -262,32 +256,26 @@ static inline int allocation(lp_state_type *pointer)
 
 		summ = 0.0;
 
-		//	if (pointer->check_fading) {
-		// force this
+		ch = pointer->channels->prev;
 
-		if(1) {
-			ch = pointer->channels->prev;
+		while(ch != NULL) {
+			ch->sir_data->fading = Expent(&pointer->seed, 1.0);
 
-			while(ch != NULL) {
-				ch->sir_data->fading = Expent(1.0);
+			summ += generate_cross_path_gain(&pointer->seed) * ch->sir_data->power * ch->sir_data->fading;
+			ch = ch->prev;
 
-				summ += generate_cross_path_gain() * ch->sir_data->power * ch->sir_data->fading;
-				ch = ch->prev;
-
-				if(++ch_counter == channels_per_cell + 1) {
-					printf("(%d) Likely stuck in a loop at time %f\n", pointer->me, pointer->lvt);
-					fflush(stdout);
-					return index;
-				}
+			if(++ch_counter == channels_cnt + 1) {
+				printf("(%u) Likely stuck in a loop at time %f\n", pointer->me, pointer->lvt);
+				fflush(stdout);
+				return index;
 			}
 		}
 
-		if(fabsf(summ) < FLT_EPSILON) {
-			// The newly allocated channel receives the minimal power
+		if(fabs(summ) < FLT_EPSILON) {
 			c->sir_data->power = MIN_POWER;
 		} else {
-			c->sir_data->fading = Expent(1.0);
-			c->sir_data->power = ((SIR_AIM * summ) / (generate_path_gain() * c->sir_data->fading));
+			c->sir_data->fading = Expent(&pointer->seed, 1.0);
+			c->sir_data->power = ((SIR_AIM * summ) / (generate_path_gain(&pointer->seed) * c->sir_data->fading));
 			if(c->sir_data->power < MIN_POWER)
 				c->sir_data->power = MIN_POWER;
 			if(c->sir_data->power > MAX_POWER)
@@ -295,7 +283,7 @@ static inline int allocation(lp_state_type *pointer)
 		}
 
 	} else {
-		printf("Unable to allocate channel, but the counter says I have %d available channels\n",
+		printf("Unable to allocate channel, but counter says %u available channels\n",
 		    pointer->channel_counter);
 		fflush(stdout);
 		abort();

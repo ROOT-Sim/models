@@ -3,6 +3,7 @@
 #include <string.h>
 #include <ROOT-Sim.h>
 #include "application.h"
+#include "argparse.h"
 #include "physical_layer.h"
 #include "link_layer.h"
 #include <limits.h>
@@ -27,120 +28,53 @@ bool is_failed(simtime_t now);
 void new_pending_transmission(node_state *state, double gain, unsigned char type, void *frame, double duration);
 void print_statistics(unsigned int root);
 
-extern gain_entry **gains_list;
-extern noise_entry *noise_list;
+gain_entry **gains_list;
+noise_entry *noise_list;
+unsigned int n_prc_tot = 4;
+_Thread_local struct rng_t *current_sensors_seed = NULL;
+_Thread_local simtime_t current_lvt_now = 0;
 
 /*
  * Application-level callback: this is the interface between the simulator and the model being simulated
  */
 
-void ProcessEvent(unsigned int me, simtime_t now, int event_type, void *event_content, unsigned int size, void *ptr)
+void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const void *event_content, unsigned size, void *ptr)
 {
-	/*
-	 * Pointer to the object representing the state of this logical process (node)
-	 */
-
-	node_state *state;
-
-	/*
-	 * Index to iterate through nodes
-	 */
-
+	node_state *state = (node_state *)ptr;
 	unsigned int i;
 
-	/*
-	 * Initialize the local pointer to the pointer provided by the simulator
-	 */
+	current_lvt_now = now;
 
-	state = (node_state *)ptr;
-
-	/*
-	 * Check whether the state object has already been set: if so, update the the local virtual time
-	 */
-
-	if(state != NULL)
+	if(state != NULL) {
 		state->lvt = now;
-
-	/*
-	 * Check if the node is just failed: if so, clear the RUNNING flag in the state field.
-	 * Skip the check at time 0, when the state has not been initialized yet.
-	 */
+		current_sensors_seed = &state->seed;
+	}
 
 	if(now) {
-		if(state->state & RUNNING) {
+		if(state && (state->state & RUNNING)) {
 			if(is_failed(now)) {
-				/*
-				 * Clear RUNNING FLAG in the state object
-				 */
-
 				state->state &= ~RUNNING;
-
-				/*
-				 * Set the "failed" flag in the object representing the statistics of the node
-				 */
-
 				node_statistics_list[state->me].failed = true;
-
-				/*
-				 * Notify the user about the failure
-				 */
-
-				printf("Node %d died at time %f\n", me, now);
+				printf("Node %llu died at time %f\n", (unsigned long long)me, now);
 				fflush(stdout);
 			}
 		}
 	}
 
-	/*
-	 * Depending on the event type, perform different tasks
-	 */
-
 	switch(event_type) {
-		case INIT:
-
-			/*
-			 * NODE INITIALIZATION
-			 *
-			 * This is the default event signalled by the simulator to each logical process => it triggers
-			 * the initialization of the node.
-			 *
-			 * In this phase, a new state object is dynamically allocated and its address is communicated to
-			 * the simulator by mean of the API function "SetState" => in this way the simulator is aware of
-			 * the memory address of the state object of processes, so it can transparently bring them back
-			 * to a previous configuration in case of inconsistency problems.
-			 *
-			 * Before the simulation can start, it is necessary to read the input file provided by the
-			 * user, containing the description of all the links of the node, the IDs of the nodes and their
-			 * level of local noise => since this implies dynamic memory allocation, only one node (the one
-			 * with ID 0 or the one chosen by the user) performs this task, so the actual start of the other
-			 * nodes has to be deferred
-			 * => as soon as it has taken this step, an event (START_NODE) is broadcasted to all the other
-			 * nodes: at this point they can properly start.
-			 *
-			 * The following steps have to be taken by all the nodes
-			 */
-
-			/*
-			 * Dynamically allocate the state object
-			 */
-
-			state = (node_state *)malloc(sizeof(node_state));
+		case LP_INIT:
+			state = (node_state *)rs_malloc(sizeof(node_state));
 			if(state == NULL) {
 				printf("Out of memory!\n");
-				exit(EXIT_FAILURE);
+				abort();
 			}
 
-			/*
-			 * The state object has been successfully allocated => tell its address to the simulator
-			 */
-
+			initialize_stream((unsigned int)me, &state->seed);
+			current_sensors_seed = &state->seed;
 			SetState(state);
-
-			/*
-			 * Initialize the state structure
-			 */
-
 			memset(state, 0, sizeof(node_state));
+			initialize_stream((unsigned int)me, &state->seed);
+			state->me = (unsigned int)me;
 
 			/*
 			 * Set the RUNNING flag in the state object
@@ -612,8 +546,11 @@ void ProcessEvent(unsigned int me, simtime_t now, int event_type, void *event_co
  */
 
 
-bool OnGVT(unsigned int me, void *snapshot)
+bool CanEnd(lp_id_t me, const void *snapshot)
 {
+	if(snapshot == NULL || node_statistics_list == NULL)
+		return false;
+
 	/*
 	 * Counter of nodes failed so far
 	 */
@@ -743,11 +680,10 @@ bool OnGVT(unsigned int me, void *snapshot)
 	}
 
 	/*
-	 * At this point, nodes other than the root are always ok with stopping simulation, while root is ok only if
-	 * the goal number of packets has been achieved for each node or if the root itself has crashed
+	 * Nodes other than root should continue running until simulation termination criteria are met
 	 */
 
-	return true;
+	return false;
 }
 
 
@@ -769,6 +705,10 @@ void wait_until(unsigned int me, simtime_t timestamp, unsigned int type)
 	/*
 	 * Schedule a new event after "interval" instants of virtual time; no parameters are provide with the event
 	 */
+
+	if(timestamp <= current_lvt_now) {
+		timestamp = current_lvt_now + 0.0001;
+	}
 
 	if(me < n_prc_tot)
 		ScheduleNewEvent(me, timestamp, type, NULL, 0);
@@ -1256,3 +1196,37 @@ void print_statistics(unsigned int root)
 }
 
 /* SIMULATION FUNCTIONS - end */
+
+struct simulation_configuration conf = {
+    .lps = 4,
+    .n_threads = 0,
+    .termination_time = 100,
+    .gvt_period = 1000,
+    .log_level = LOG_INFO,
+    .stats_file = "sensors",
+    .ckpt_interval = 0,
+    .core_binding = true,
+    .serial = false,
+    .synchronization = TIME_WARP,
+    .dispatcher = ProcessEvent,
+    .committed = CanEnd,
+};
+
+int main(int argc, char **argv)
+{
+	struct model_cli_options opt;
+	init_default_cli_options(&opt, 4, 100);
+	parse_model_cli_options(argc, argv, &opt, &conf);
+
+	if (argc > 1 && argv[argc - 1][0] != '-') {
+		config_file_path = argv[argc - 1];
+	} else if (!config_file_path) {
+		config_file_path = "topology.txt";
+	}
+
+	n_prc_tot = (unsigned int)conf.lps;
+
+	RootsimInit(&conf);
+	return RootsimRun();
+}
+

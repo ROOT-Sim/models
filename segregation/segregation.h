@@ -1,8 +1,9 @@
 #pragma once
 #include <stdbool.h>
 #include <ROOT-Sim.h>
+#include "abm.h"
 
-enum _bug_events_t { PRODUCE_FOOD = INIT + 1, GUY_LEAVE, GUY_VISIT, KEEP_ALIVE, GUY_DELAYED_VISIT, _TRAVERSE };
+enum _bug_events_t { PRODUCE_FOOD = 1, GUY_LEAVE, GUY_VISIT, KEEP_ALIVE, GUY_DELAYED_VISIT, _TRAVERSE };
 
 #define TIME_STEP 1.0
 #define AGENT_SPAWN_PROBABILITY 0.5

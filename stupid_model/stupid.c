@@ -1,8 +1,11 @@
-#include <stdlib.h>
-
 #include "stupid.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
+#include "abm.h"
+#include "argparse.h"
 
 struct _topology_settings_t topology_settings = {
     .type = TOPOLOGY_OBSTACLES, .default_geometry = TOPOLOGY_HEXAGON, .write_enabled = false};
@@ -13,10 +16,7 @@ typedef struct _region_t {
 	simtime_t lvt;
 	double food_available; // cell's amount of food
 	double last_bug_size;  // last bug size
-	size_t bugs; // XXX here we count bugs in the cell. Notice that CountAgentsABM() already provides us this
-	             // information but since we need to track it we have to replicate it here: if basic values of
-	             // regions are frequently requested for event modeling we can render them available by default
-	             // without the need of these tricks
+	size_t bugs;
 	unsigned is_explored;
 	unsigned violation;
 } region_t;
@@ -26,10 +26,14 @@ typedef struct _bug_t {
 	bool first; // to render the runs consistent in time we render the first spawned bug immortal
 } bug_t;
 
-void ProcessEvent(unsigned int me, simtime_t now, int event_type, agent_t *agent_p, unsigned int event_size,
-    region_t *state)
+void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const void *event_content,
+    unsigned event_size, void *ptr)
 {
-	unsigned i, j, dest, tries, directions;
+	(void)event_size;
+	region_t *state = (region_t *)ptr;
+	const agent_t *agent_p = (const agent_t *)event_content;
+
+	unsigned i, dest, tries, directions;
 	bug_t *this_bug;
 	double consumption;
 	size_t *bugs_count;
@@ -39,12 +43,9 @@ void ProcessEvent(unsigned int me, simtime_t now, int event_type, agent_t *agent
 		state->lvt = now;
 
 	switch(event_type) {
-		case INIT:
-			(void)event_size;
-			// standard stuff
-			region_t *region = malloc(sizeof(region_t));
-
-			SetState(region);
+		case LP_INIT: {
+			region_t *region = rs_malloc(sizeof(region_t));
+			if (!region) abort();
 
 			region->is_explored = 0;
 			region->last_bug_size = 0;
@@ -52,26 +53,30 @@ void ProcessEvent(unsigned int me, simtime_t now, int event_type, agent_t *agent
 			region->bugs = 0;
 			region->violation = 0;
 			region->lvt = 0;
-			// here we do what I explained earlier
+
+			SetState(region);
 			TrackNeighbourInfo(&region->bugs);
-			// for simplicity we spawn a single bug at region 0
+
 			if(me < NUM_OCCUPIED_CELLS) {
-				// here we call ourselves
 				ProcessEvent(me, 0, SPAWN_BUG, NULL, 0, region);
 			}
 
 			ScheduleNewEvent(me, now + TIME_STEP, PRODUCE_FOOD, NULL, 0);
 			break;
+		}
 
 		case BUG_DELAYED_VISIT:
-			ScheduleNewEvent(me, now + 0.0001, BUG_VISIT, agent_p, sizeof(*agent_p));
+			if (agent_p)
+				ScheduleNewEvent(me, now + 0.0001, BUG_VISIT, agent_p, sizeof(agent_t));
 			break;
 
-		case BUG_VISIT:
+		case BUG_VISIT: {
+			if (!agent_p || !state) break;
 			state->is_explored = 1;
 			state->bugs++;
 
 			this_bug = DataAgent(*agent_p, NULL);
+			if (!this_bug) break;
 
 			if(CountAgents() > BUG_PER_CELL) {
 				state->violation++;
@@ -92,25 +97,16 @@ void ProcessEvent(unsigned int me, simtime_t now, int event_type, agent_t *agent
 			if(this_bug->size >= REPRODUCTION_SIZE) {
 				// reproduce
 				for(i = 0; i < CHILD_COUNT; ++i) {
-					// here we get the count of possible neighbours
 					directions = DirectionsCount();
-					// this is (for me) arbitrary: I extrapolated it from the old model
 					tries = directions + 1;
 					while(tries--) {
-						// we select a direction, more on direction is explained in the topology
-						// section of ROOT-Sim.h
-						j = RandomRange(0, directions - 1);
-						// we have to check this call, because we may be asking for a neighbour
-						// of a border cell
-						if(GetNeighbourInfo(j, &dest, (void **)&bugs_count) < 0)
+						unsigned int j = (unsigned int)RandomRange(0, (int)directions - 1);
+						if(GetNeighbourInfo(j, &dest, (void **)&bugs_count) < 0 || !bugs_count)
 							continue;
-						// our requirement is to make sure we always have a bug threshold
-						// respected per region
 						if(*bugs_count < BUG_PER_CELL) {
-							ScheduleNewEvent(dest, now + (simtime_t)(TIME_STEP * Random()),
-							    SPAWN_BUG, NULL, 0);
-							// this doesn't get remotely updated, it's just to keep track of
-							// currently scheduled children
+							simtime_t delay = (simtime_t)(TIME_STEP * Random());
+							if (delay < 0.0001) delay = 0.0001;
+							ScheduleNewEvent(dest, now + delay, SPAWN_BUG, NULL, 0);
 							(*bugs_count)++;
 							break;
 						}
@@ -121,82 +117,107 @@ void ProcessEvent(unsigned int me, simtime_t now, int event_type, agent_t *agent
 				state->bugs--;
 
 			} else {
-				ScheduleNewLeaveEvent(now + (simtime_t)(TIME_STEP * Random()), BUG_LEAVING, *agent_p);
+				simtime_t delay = (simtime_t)(TIME_STEP * Random());
+				if (delay < 0.0001) delay = 0.0001;
+				ScheduleNewLeaveEvent(now + delay, BUG_LEAVING, *agent_p);
 			}
 			break;
+		}
 
 		case PRODUCE_FOOD:
-
-			state->food_available += RandomRange(0, MAX_FOOD_PRODUCTION_RATE);
-
+			if (state) {
+				state->food_available += RandomRange(0, MAX_FOOD_PRODUCTION_RATE);
+			}
 			ScheduleNewEvent(me, now + TIME_STEP, PRODUCE_FOOD, NULL, 0);
-
 			break;
 
 		case SPAWN_BUG:
 			if(CountAgents() < BUG_PER_CELL) {
-				// instantiate a new agent (I reuse the parameter variable just for simplicity)
 				this_agent = SpawnAgent(sizeof(bug_t));
-				// we initialize our custom fields
 				this_bug = DataAgent(this_agent, NULL);
-				this_bug->size = 1;
-				this_bug->first = now <= 0.0;
-				// we call ourselves to make the bug eat and eventually leave this region
+				if (this_bug) {
+					this_bug->size = 1;
+					this_bug->first = now <= 0.0;
+				}
 				ProcessEvent(me, now, BUG_VISIT, &this_agent, sizeof(this_agent), state);
 			}
-
 			break;
 
-		case BUG_LEAVING:
-			// the bug wants to leave but he still hasn't got a destination and horrible things may happen
-			// to him
-
-			state->bugs--; // one way or another we get rid of this bug (lulz a word pun!)
+		case BUG_LEAVING: {
+			if (!agent_p || !state) break;
+			state->bugs--;
 
 			if(RandomRange(0, 100) >= SURVIVAL_PROBABILITY) {
 				this_bug = DataAgent(*agent_p, NULL);
-				if(!this_bug->first) {
-					KillAgent(*agent_p); // :(
+				if(this_bug && !this_bug->first) {
+					KillAgent(*agent_p);
 					break;
 				}
 			}
 
-			// here we verify there is at least a suitable neighbour to visit before randomly picking one
 			directions = DirectionsCount();
-			for(i = 0; i < directions; ++i) {
-				if(GetNeighbourInfo(i, &dest, (void **)&bugs_count) < 0)
+			unsigned int valid_dests[8];
+			unsigned int valid_count = 0;
+			for(i = 0; i < directions && valid_count < 8; ++i) {
+				if(GetNeighbourInfo(i, &dest, (void **)&bugs_count) < 0 || !bugs_count)
 					continue;
 
 				if(*bugs_count < BUG_PER_CELL) {
-					// since we just found a suitable neighbour we can be sure this cycle will
-					// eventually complete
-					do {
-						j = RandomRange(0, directions - 1);
-					} while(GetNeighbourInfo(j, &dest, (void **)&bugs_count) < 0 ||
-						*bugs_count >= BUG_PER_CELL);
-					// this is our planned visit
-					EnqueueVisit(*agent_p, dest, BUG_DELAYED_VISIT);
-					break;
+					valid_dests[valid_count++] = dest;
 				}
 			}
 
-			if(i >= directions) { // this bug tried and tried to exit without succeeding
+			if(valid_count > 0) {
+				unsigned int pick = (unsigned int)RandomRange(0, (int)valid_count - 1);
+				EnqueueVisit(*agent_p, valid_dests[pick], BUG_DELAYED_VISIT);
+			} else {
 				KillAgent(*agent_p);
 			}
 			break;
+		}
 
-		case BUG_TRAVERSE: // we only schedule visits to neighbours, we shouldn't cross any "intermediate"
-		                   // region
-				   /* no break */
+		case BUG_TRAVERSE:
 		default:
-			printf("%s:%d: Unsupported event: %d\n", __FILE__, __LINE__, event_type);
-			exit(EXIT_FAILURE);
+			break;
 	}
 }
 
-int OnGVT(unsigned int me, region_t *snapshot)
+bool CanEnd(lp_id_t me, const void *snapshot)
 {
 	(void)me;
+	if (!snapshot) return false;
+	return ((const region_t *)snapshot)->is_explored != 0;
+}
 
-	return snapshot->is_explored;
+struct simulation_configuration conf = {
+    .lps = 16,
+    .n_threads = 0,
+    .termination_time = 100,
+    .gvt_period = 1000,
+    .log_level = LOG_INFO,
+    .stats_file = "stupid",
+    .ckpt_interval = 0,
+    .core_binding = true,
+    .serial = false,
+    .synchronization = TIME_WARP,
+};
+
+int main(int argc, char **argv)
+{
+	struct model_cli_options opt;
+	init_default_cli_options(&opt, 16, 100);
+	parse_model_cli_options(argc, argv, &opt, &conf);
+
+	unsigned int side = (unsigned int)sqrt((double)conf.lps);
+	if (side * side != conf.lps) {
+		side = (unsigned int)ceil(sqrt((double)conf.lps));
+		conf.lps = side * side;
+	}
+
+	abm_init_simulation(&conf, TOPOLOGY_HEXAGON, side, side, sizeof(size_t), ProcessEvent, CanEnd);
+
+	RootsimInit(&conf);
+	int ret = RootsimRun();
+	printf("ROOT-Sim exited with code: %d\n", ret);
+	return ret;
 }

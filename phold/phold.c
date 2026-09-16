@@ -3,11 +3,12 @@
  *
  * @brief Minimalist PHold implementation
  *
- * SPDX-FileCopyrightText: 2008-2023 HPDCS Group <rootsim@googlegroups.com>
+ * SPDX-FileCopyrightText: 2008-2026 HPDCS Group <rootsim@googlegroups.com>
  * SPDX-License-Identifier: GPL-3.0-only
  */
 #include <ROOT-Sim.h>
 #include <ROOT-Sim/random.h>
+#include "argparse.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -15,7 +16,7 @@
 #include <stdlib.h>
 
 #ifndef NUM_LPS
-#define NUM_LPS 8192
+#define NUM_LPS 1024
 #endif
 
 #ifndef NUM_THREADS
@@ -37,8 +38,28 @@ static simtime_t mean = 1.0;
 static simtime_t lookahead = 0.0;
 static int start_events = 1;
 
-void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const void *content, unsigned size, void *s)
+static bool CanEnd(lp_id_t me, const void *snapshot);
+static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const void *content, unsigned size, void *s);
+
+static struct simulation_configuration conf = {
+    .lps = NUM_LPS,
+    .n_threads = NUM_THREADS,
+    .termination_time = 1000,
+    .gvt_period = 1000,
+    .log_level = LOG_INFO,
+    .stats_file = "phold",
+    .ckpt_interval = 0,
+    .core_binding = true,
+    .serial = false,
+    .synchronization = TIME_WARP,
+    .dispatcher = ProcessEvent,
+    .committed = CanEnd,
+};
+
+static void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const void *content, unsigned size, void *s)
 {
+	(void)content;
+	(void)size;
 	struct phold_message new_event = {0};
 	lp_id_t dest;
 	struct phold_state *state = (struct phold_state *)s;
@@ -48,7 +69,7 @@ void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const void *co
 			state = rs_malloc(sizeof(*state));
 			if(state == NULL)
 				abort();
-			initialize_stream(me, &state->seed);
+			initialize_stream((unsigned int)me, &state->seed);
 			SetState(state);
 
 			for(int i = 0; i < start_events; i++)
@@ -61,7 +82,7 @@ void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const void *co
 		case EVENT:
 			dest = me;
 			if(Random(&state->seed) <= p_remote)
-				dest = (lp_id_t)(Random(&state->seed) * NUM_LPS);
+				dest = (lp_id_t)(Random(&state->seed) * conf.lps);
 
 			ScheduleNewEvent(dest, now + Expent(&state->seed, mean) + lookahead, EVENT, &new_event, sizeof(new_event));
 			break;
@@ -72,27 +93,19 @@ void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const void *co
 	}
 }
 
-bool CanEnd(lp_id_t me, const void *snapshot)
+static bool CanEnd(lp_id_t me, const void *snapshot)
 {
+	(void)me;
+	(void)snapshot;
 	return false;
 }
 
-struct simulation_configuration conf = {
-    .lps = NUM_LPS,
-    .n_threads = NUM_THREADS,
-    .termination_time = 1000,
-    .gvt_period = 1000,
-    .log_level = LOG_INFO,
-    .stats_file = "phold",
-    .ckpt_interval = 0,
-    .core_binding = true,
-    .serial = false,
-    .dispatcher = ProcessEvent,
-    .committed = CanEnd,
-};
-
-int main(void)
+int main(int argc, char **argv)
 {
+	struct model_cli_options opt;
+	init_default_cli_options(&opt, NUM_LPS, 1000);
+	parse_model_cli_options(argc, argv, &opt, &conf);
+
 	RootsimInit(&conf);
 	return RootsimRun();
 }

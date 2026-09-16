@@ -1,12 +1,19 @@
-#include "application.h"
+#include "segregation.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
+#include "abm.h"
+#include "argparse.h"
+
+struct n_data {
+	bool has_engineer;
+	unsigned agents;
+};
 
 typedef struct _region_t {
-	struct n_data {
-		bool has_engineer;
-		unsigned agents;
-	} n;
+	struct n_data n;
 	unsigned violation;
 	bool happy, started;
 } region_t;
@@ -20,33 +27,37 @@ typedef struct _guy_t {
 	bool engineer;
 } guy_t;
 
-void ProcessEvent(unsigned int me, simtime_t now, int event_type, agent_t *agent_p, unsigned int event_size,
-    region_t *state)
+void ProcessEvent(lp_id_t me, simtime_t now, unsigned event_type, const void *event_content,
+    unsigned event_size, void *ptr)
 {
-	unsigned i, j, directions, dest;
+	(void)event_size;
+	region_t *state = (region_t *)ptr;
+	const agent_t *agent_p = (const agent_t *)event_content;
+
+	unsigned i, directions, dest;
 	float unlike;
 	agent_t this_agent;
 	guy_t *guy;
-	region_t *neighbour_data;
+	struct n_data *neighbour_data;
 	bool can_exit;
-	if(event_type != INIT)
-		state->started = true;
-	switch(event_type) {
-		case INIT:
-			(void)event_size;
-			// standard stuff
-			region_t *region = malloc(sizeof(region_t));
 
-			SetState(region);
+	if(event_type != LP_INIT && state != NULL)
+		state->started = true;
+
+	switch(event_type) {
+		case LP_INIT: {
+			region_t *region = rs_malloc(sizeof(region_t));
+			if (!region) abort();
 
 			region->n.agents = 0;
 			region->n.has_engineer = false;
 			region->violation = 0;
 			region->happy = false;
 			region->started = false;
-			// here we do what I explained earlier
-			TrackNeighbourInfo(region);
-			// for simplicity we spawn a single bug at region 0
+
+			SetState(region);
+			TrackNeighbourInfo(&region->n);
+
 			if(Random() < AGENT_SPAWN_PROBABILITY) {
 				region->n.agents++;
 				this_agent = SpawnAgent(sizeof(guy_t));
@@ -57,19 +68,23 @@ void ProcessEvent(unsigned int me, simtime_t now, int event_type, agent_t *agent
 
 			ScheduleNewEvent(me, now + 10 * Random() * TIME_STEP + 0.001, KEEP_ALIVE, NULL, 0);
 			break;
+		}
 
 		case KEEP_ALIVE:
 			ScheduleNewEvent(me, now + 10 * Random() * TIME_STEP + 0.001, KEEP_ALIVE, NULL, 0);
 			break;
 
 		case GUY_DELAYED_VISIT:
-			ScheduleNewEvent(me, now + 0.0001, GUY_VISIT, agent_p, sizeof(*agent_p));
+			ScheduleNewEvent(me, now + 0.0001, GUY_VISIT, agent_p, sizeof(agent_t));
 			break;
 
 		case GUY_VISIT:
+			if (!agent_p || !state) break;
 			guy = DataAgent(*agent_p, NULL);
 			state->n.agents++;
-			state->n.has_engineer = guy->engineer;
+			if (guy) {
+				state->n.has_engineer = guy->engineer;
+			}
 
 			if(CountAgents() > 1) {
 				state->violation++;
@@ -81,47 +96,89 @@ void ProcessEvent(unsigned int me, simtime_t now, int event_type, agent_t *agent
 			break;
 
 		case GUY_LEAVE:
+			if (!agent_p || !state) break;
 			guy = DataAgent(*agent_p, NULL);
 			unlike = 0.0;
 			directions = DirectionsCount();
 			can_exit = false;
 			for(i = 0; i < directions; ++i) {
-				if(GetNeighbourInfo(i, &dest, (void **)&neighbour_data) < 0)
+				if(GetNeighbourInfo(i, &dest, (void **)&neighbour_data) < 0 || !neighbour_data)
 					continue;
 
-				if(neighbour_data->n.agents && guy->engineer != neighbour_data->n.has_engineer)
-					unlike += 1.0;
+				if(neighbour_data->agents && guy && guy->engineer != neighbour_data->has_engineer)
+					unlike += 1.0f;
 
-				if(neighbour_data->n.agents < 1) {
+				if(neighbour_data->agents < 1) {
 					can_exit = true;
 				}
 			}
 
-			state->happy = unlike / DirectionsCount() < AGENT_THRESHOLD;
+			state->happy = (unlike / (float)directions) < AGENT_THRESHOLD;
 
 			if(!state->happy && can_exit) {
-				do {
-					j = RandomRange(0, directions - 1);
-				} while(GetNeighbourInfo(j, &dest, (void **)&neighbour_data) < 0 ||
-					neighbour_data->n.agents >= 1);
-				// this is our planned visit
-				state->n.agents--;
-				EnqueueVisit(*agent_p, dest, GUY_DELAYED_VISIT);
+				unsigned int valid_dests[8];
+				unsigned int valid_count = 0;
+				for (unsigned int d = 0; d < directions && valid_count < 8; ++d) {
+					if(GetNeighbourInfo(d, &dest, (void **)&neighbour_data) == 0 &&
+					   neighbour_data && neighbour_data->agents < 1) {
+						valid_dests[valid_count++] = dest;
+					}
+				}
+				if (valid_count > 0) {
+					unsigned int pick = (unsigned int)RandomRange(0, (int)valid_count - 1);
+					state->n.agents--;
+					EnqueueVisit(*agent_p, valid_dests[pick], GUY_DELAYED_VISIT);
+				} else {
+					ScheduleNewLeaveEvent(now + Random() * TIME_STEP + 0.0001, GUY_LEAVE, *agent_p);
+				}
 			} else {
 				ScheduleNewLeaveEvent(now + Random() * TIME_STEP + 0.0001, GUY_LEAVE, *agent_p);
 			}
 			break;
 
-		case _TRAVERSE: // we only schedule visits to neighbours, we shouldn't cross any "intermediate" region
-				/* no break */
+		case _TRAVERSE:
 		default:
-			printf("%s:%d: Unsupported event: %d\n", __FILE__, __LINE__, event_type);
-			exit(EXIT_FAILURE);
+			break;
 	}
 }
 
-int OnGVT(unsigned int me, region_t *snapshot)
+bool CanEnd(lp_id_t me, const void *snapshot)
 {
 	(void)me;
-	return snapshot->started && (snapshot->happy || snapshot->n.agents == 0);
+	if (!snapshot) return false;
+	const region_t *s = (const region_t *)snapshot;
+	return s->started && (s->happy || s->n.agents == 0);
+}
+
+struct simulation_configuration conf = {
+    .lps = 16,
+    .n_threads = 0,
+    .termination_time = 100,
+    .gvt_period = 1000,
+    .log_level = LOG_INFO,
+    .stats_file = "segregation",
+    .ckpt_interval = 0,
+    .core_binding = true,
+    .serial = false,
+    .synchronization = TIME_WARP,
+};
+
+int main(int argc, char **argv)
+{
+	struct model_cli_options opt;
+	init_default_cli_options(&opt, 16, 100);
+	parse_model_cli_options(argc, argv, &opt, &conf);
+
+	unsigned int side = (unsigned int)sqrt((double)conf.lps);
+	if (side * side != conf.lps) {
+		side = (unsigned int)ceil(sqrt((double)conf.lps));
+		conf.lps = side * side;
+	}
+
+	abm_init_simulation(&conf, TOPOLOGY_HEXAGON, side, side, sizeof(struct n_data), ProcessEvent, CanEnd);
+
+	RootsimInit(&conf);
+	int ret = RootsimRun();
+	printf("ROOT-Sim exited with code: %d\n", ret);
+	return ret;
 }

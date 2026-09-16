@@ -746,6 +746,8 @@ void schedule_beacons_interval_update(node_state *state)
 	 */
 
 	double remaining = state->current_interval - state->beacon_sending_time;
+	if (remaining < 0.0001)
+		remaining = 0.0001;
 
 	/*
 	 * Request an event scheduled at the time in the future when the update will have to be performed

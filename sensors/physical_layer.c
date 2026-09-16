@@ -409,7 +409,7 @@ void send_ack(node_state *state, ctp_data_packet *packet)
 
 		unsigned int sender = packet->link_frame.src;
 		if(sender < n_prc_tot)
-			ScheduleNewEvent(sender, state->lvt, ACK_RECEIVED, packet, sizeof(ctp_data_packet));
+			ScheduleNewEvent(sender, state->lvt + 0.0001, ACK_RECEIVED, packet, sizeof(ctp_data_packet));
 		else {
 			printf("[FATAL ERROR] Scheduling event for node %d, that does not exist"
 			       "\n",
@@ -967,7 +967,7 @@ void transmit_frame(node_state *state, unsigned char type)
 			 */
 
 			if(sink < n_prc_tot)
-				ScheduleNewEvent(sink, state->lvt, TRANSMISSION_BEACON_STARTED, state->radio_outgoing,
+				ScheduleNewEvent(sink, state->lvt + 0.0001, TRANSMISSION_BEACON_STARTED, state->radio_outgoing,
 				    sizeof(ctp_routing_packet));
 			else {
 				printf("[FATAL ERROR] Scheduling event for node %d, that does not exist"
@@ -989,7 +989,7 @@ void transmit_frame(node_state *state, unsigned char type)
 			 */
 
 			if(sink < n_prc_tot)
-				ScheduleNewEvent(sink, state->lvt, TRANSMISSION_DATA_PACKET_STARTED,
+				ScheduleNewEvent(sink, state->lvt + 0.0001, TRANSMISSION_DATA_PACKET_STARTED,
 				    state->radio_outgoing, sizeof(ctp_data_packet));
 			else {
 				printf("[FATAL ERROR] Scheduling event for node %d, that does not exist"

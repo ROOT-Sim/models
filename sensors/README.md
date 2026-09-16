@@ -172,8 +172,13 @@ Also the node continuously receives packets from other nodes and processes them.
 </p>
 <h2>Usage</h2>
 <p align="justify">
-The model is meant to be run on <a href="https://github.com/HPDCS/ROOT-Sim">ROOT-Sim</a>, so it has to be compiled using the <b>rootsim-cc</b> compiler and it's mandatory to provide the number of logical processes (recall that each corresponds to a node in the WSN); in case the simulation is to be run in parallel, also the number of cores available has to be provided in input (see "Credits and acknowledgements" for further details on ROOT-Sim).
-<br>The model is highly parametrized, so there's a great number of optional parameters the user can provide to the simulator in order to control various aspects of the WSN: if optional parameters are not given, defaul values are used (they are the same as TinyOS and TOSSIM).
+The model is meant to be run on <a href="https://github.com/HPDCS/ROOT-Sim">ROOT-Sim</a> (version 3.0). It is compiled using CMake:
+<pre>
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+</pre>
+It is mandatory to provide the number of logical processes (recall that each corresponds to a node in the WSN); in case the simulation is to be run in parallel, also the number of cores available can be provided in input.
+<br>The model is highly parametrized, so there's a great number of optional parameters the user can provide to the simulator in order to control various aspects of the WSN: if optional parameters are not given, default values are used (they are the same as TinyOS and TOSSIM).
 <br>Beside the optional parameters, there's also a mandatory one, namely the <i>input file</i>, which defines the topology of the network.
 <br><b>NOTE: the input file is expected to be in the same folder as this simulation model</b>.
 </p>
@@ -277,3 +282,4 @@ The implementatio of the Collection Tree Protocol is the adaptation of the one c
 Many references to CTP and to its implementation can be found <a href="http://sing.stanford.edu/gnawali/ctp/">here</a>: among these references, the one that helped me the most is by  <a href="http://ctp-castalia.googlecode.com/files/colesanti_santinis_2011_ctp-castalia.pdf">Ugo Colesanti and Silvia Santinia</a>.
 <br>The simulation of the MAC and physical layers follows is largely taken from <a href="http://tinyos.stanford.edu/tinyos-wiki/index.php/TOSSIM">TOSSIM</a> (the simulator shipped with TinyOS) and adapted to ROOT-Sim: an explanation of the underlying channel and radio models is available <a href="http://anrg.usc.edu/downloads/LinkModellingTutorial.pdf">here</a>.
 </p>
+
