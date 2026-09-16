@@ -16,6 +16,7 @@ A collection of discrete event simulation models targeting ROOT-Sim 3.0, showcas
 | `tuberculosis/` | Tuberculosis | Epidemiology / ABM | Spatial epidemic spread model of tuberculosis with risk factors and treatment. |
 | `robot_explore/` | Robot Explore | Robotics / ABM | Multi-robot cooperative terrain exploration with A* pathfinding and map sharing. |
 | `sensors/` | Sensors (CTP) | Wireless Sensor Networks | Wireless Sensor Network running the Collection Tree Protocol (CTP) and CSMA MAC. |
+| `traffic/` | Traffic | Urban Mobility | Microscopic car traffic simulation over graph road networks with congestion, accidents, and jam notifications. |
 | `common/` | Common Library | Infrastructure | Shared Agent-Based Modeling (ABM) runtime, CLI parser, and CMake discovery modules. |
 
 ## Prerequisites
@@ -45,7 +46,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-This compiles all 10 model executables into their respective subdirectories under `build/`.
+This compiles all 11 model executables into their respective subdirectories under `build/`.
 
 ### Building a Single Model
 
@@ -93,6 +94,11 @@ Run PCS sequentially with 16 cells up to virtual time 500:
 Run Sugarscape in parallel Time Warp mode with log level warning:
 ```sh
 ./build/sugarscape/sugarscape -c 8 -p 64 -t 200 -l warn
+```
+
+Run Traffic sequentially on the dummy topology:
+```sh
+./build/traffic/traffic --serial -t 3600 traffic/config/dummy.json
 ```
 
 ## License

@@ -19,4 +19,6 @@ add_subdirectory(sensors)
 add_subdirectory(stupid_model)
 add_subdirectory(sugarscape)
 add_subdirectory(tcar)
+add_subdirectory(traffic)
 add_subdirectory(tuberculosis)
+
