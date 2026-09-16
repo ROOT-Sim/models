@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.14)
 project("ROOT-Sim models" LANGUAGES C DESCRIPTION "Various C models for ROOT-Sim")
 
 set(CMAKE_VERBOSE_MAKEFILE ON)
@@ -6,14 +6,19 @@ set(CMAKE_VERBOSE_MAKEFILE ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-find_package(MPI REQUIRED)
+find_package(MPI)
 
-# This is a manual configuration of the variables, because we don't have a proper Config.cmake file
-# provided by the libraries.
-# Currently working with the develop branch of the core and the master branch of the rng library.
-set(ROOTSIM_CORE_INCLUDE_PATH "${CMAKE_SOURCE_DIR}/include")
-set(ROOTSIM_CORE_LIBRARIES "${CMAKE_SOURCE_DIR}/lib/librscore.a")
-set(ROOTSIM_RNG_INCLUDE_PATH "${CMAKE_SOURCE_DIR}/include")
-set(ROOTSIM_RNG_LIBRARIES "${CMAKE_SOURCE_DIR}/lib/librsrng.a")
+include(${CMAKE_CURRENT_SOURCE_DIR}/common/FindROOTSim.cmake)
 
+add_subdirectory(nosql)
+add_subdirectory(pcs)
 add_subdirectory(phold)
+add_subdirectory(robot_explore)
+add_subdirectory(segregation)
+add_subdirectory(sensors)
+add_subdirectory(stupid_model)
+add_subdirectory(sugarscape)
+add_subdirectory(tcar)
+add_subdirectory(traffic)
+add_subdirectory(tuberculosis)
+
