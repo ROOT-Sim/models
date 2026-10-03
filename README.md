@@ -17,6 +17,18 @@ A collection of discrete event simulation models targeting ROOT-Sim 3.0, showcas
 | `robot_explore/` | Robot Explore | Robotics / ABM | Multi-robot cooperative terrain exploration with A* pathfinding and map sharing. |
 | `sensors/` | Sensors (CTP) | Wireless Sensor Networks | Wireless Sensor Network running the Collection Tree Protocol (CTP) and CSMA MAC. |
 | `traffic/` | Traffic | Urban Mobility | Microscopic car traffic simulation over graph road networks with congestion, accidents, and jam notifications. |
+| `colliding_pucks/` | Colliding Pucks | Classical PDES / Physics | Continuous 2D elastic billiards simulation with naive, fixed, and adaptive quadtree spatial indexing. |
+| `sharks/` | Sharks World | Ecological PDES / Spatial | Toroidal ocean predator-prey simulation with overlapping sectors and spheres of influence. |
+| `queueing_network/` | Queueing Network | Operations Research / Queueing | Classical Jackson / BCMP open and closed queueing networks with Nicol presampling lookahead and Little's Law validation. |
+| `logic_circuit/` | Logic Circuit | Digital CAD / VLSI | Gate-level digital logic simulator parsing ISCAS-85/89 netlists with inertial/transport delays and FNV-1 signatures. |
+| `airport/` | Airport Operations | Transportation / Aviation | Multi-runway airport network simulation based on Fujimoto's benchmark with airborne holding priority and gate turnaround. |
+| `ising/` | Ising Spin Model | Statistical Physics | 2D continuous-time ferromagnetic spin lattice using Lubachevsky's block decomposition, Glauber dynamics, and Onsager critical temperature. |
+| `interconnect/` | Interconnect Network | Computer Architecture | $k$-ary $n$-cube direct network on $n$-dimensional tori with virtual channels, DOR/ROMM/Deflection routing, and synthetic traffic. |
+| `smmp/` | SMMP | Computer Architecture | Shared-memory multiprocessor with private L1 caches, interconnection delays, and interleaved memory bank contention. |
+| `raid5/` | RAID-5 Disk Array | Storage Systems | RAID-5 storage subsystem with rotational mechanics, head seeking, small-write RMW penalty, and dynamic drive failure reconstruction. |
+| `spiking_net/` | Spiking Neural Network | Computational Neuroscience | Event-driven Leaky Integrate-and-Fire (LIF) network with refractory periods, delayed axonal propagation, and background Poisson drive. |
+| `wildfire/` | Wildfire Propagation | Environmental / Physics | 2D wildland surface fire propagation using Rothermel semi-empirical spread equations, wind vectors, slope aspect, and cellular burnout. |
+| `sandpile/` | BTW Sandpile | Complex Systems / SOC | Prototypical Bak-Tang-Wiesenfeld self-organized criticality (SOC) lattice with toppling avalanches and dissipative boundary losses. |
 | `common/` | Common Library | Infrastructure | Shared Agent-Based Modeling (ABM) runtime, CLI parser, and CMake discovery modules. |
 
 ## Prerequisites
@@ -46,7 +58,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-This compiles all 11 model executables into their respective subdirectories under `build/`.
+This compiles all 23 model executables into their respective subdirectories under `build/`.
 
 ### Building a Single Model
 
@@ -99,6 +111,16 @@ Run Sugarscape in parallel Time Warp mode with log level warning:
 Run Traffic sequentially on the dummy topology:
 ```sh
 ./build/traffic/traffic --serial -t 3600 traffic/config/dummy.json
+```
+
+Run Colliding Pucks in parallel Time Warp mode with adaptive quadtree spatial indexing:
+```sh
+./build/colliding_pucks/colliding_pucks -c 4 --index dynamic --cluster -t 100
+```
+
+Run Sharks World in parallel Time Warp mode on an 8x8 sector grid (64 LPs):
+```sh
+./build/sharks/sharks -c 4 --grid-dim 8 --creatures 1000 -t 50
 ```
 
 ## License
