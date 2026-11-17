@@ -32,10 +32,10 @@ typedef struct _pending_transmission pending_transmission;
  * INPUT FILE.
  */
 
-gain_entry **gains_list = NULL;
+extern gain_entry **gains_list;
 
 /*
- * NOISE FLOOR LIST
+ * NOISE LIST
  *
  * Dynamically allocated array containing the representation of the noise for each node node in the network.
  * It has a static component (the noise floor), and a dynamic component, because of the thermal noise, referred to as
@@ -43,7 +43,7 @@ gain_entry **gains_list = NULL;
  * deviation is read from the input file, together with the value of the noise floor.
  */
 
-noise_entry *noise_list = NULL;
+extern noise_entry *noise_list;
 
 extern FILE *file;
 
