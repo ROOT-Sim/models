@@ -80,6 +80,10 @@ void abm_init_simulation(struct simulation_configuration *conf,
                          ProcessEvent_t user_handler,
                          CanEnd_t user_can_end);
 
+void abm_set_obstacles(const double *obstacles, unsigned int count);
+double GetValueTopology(unsigned int from, unsigned int to);
+unsigned int abm_compute_min_tour(unsigned int from, unsigned int to, unsigned int *path);
+
 #define SetState(s) abm_set_state(s)
 #define CountAgentsABM() CountAgents()
 #define Random() abm_random()

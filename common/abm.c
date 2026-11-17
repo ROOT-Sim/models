@@ -1,5 +1,6 @@
 #include "abm.h"
 
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -53,8 +54,15 @@ static enum topology_geometry abm_geometry = TOPOLOGY_HEXAGON;
 static size_t abm_neighbour_data_size = 0;
 static ProcessEvent_t abm_user_handler = NULL;
 static CanEnd_t abm_user_can_end = NULL;
+static double *abm_obstacles = NULL;
+static unsigned int abm_obstacles_count = 0;
+static unsigned int *abm_adj = NULL;
+static unsigned int abm_adj_regions = 0;
+static unsigned int abm_adj_dirs = 0;
 
 static _Thread_local struct abm_lp_context *current_abm_ctx = NULL;
+static _Thread_local struct abm_agent *iter_next = NULL;
+static _Thread_local bool iter_active = false;
 
 struct abm_leave_msg {
     agent_t agent_id;
@@ -168,6 +176,9 @@ void KillAgent(agent_t agent_id)
     while (*curr) {
         if ((*curr)->id == agent_id) {
             struct abm_agent *to_del = *curr;
+            if (iter_active && iter_next == to_del) {
+                iter_next = to_del->next;
+            }
             *curr = to_del->next;
             if (to_del->user_data)
                 rs_free(to_del->user_data);
@@ -186,20 +197,25 @@ unsigned int CountAgents(void)
 
 bool IterAgents(agent_t *agent_p)
 {
-    static _Thread_local struct abm_agent *iter = NULL;
     if (!current_abm_ctx || !agent_p) {
-        iter = NULL;
+        iter_active = false;
+        iter_next = NULL;
         return false;
     }
-    if (iter == NULL) {
-        iter = current_abm_ctx->agents;
+    struct abm_agent *curr;
+    if (!iter_active) {
+        curr = current_abm_ctx->agents;
+        iter_active = true;
     } else {
-        iter = iter->next;
+        curr = iter_next;
     }
-    if (iter) {
-        *agent_p = iter->id;
+    if (curr) {
+        iter_next = curr->next;
+        *agent_p = curr->id;
         return true;
     }
+    iter_active = false;
+    iter_next = NULL;
     return false;
 }
 
@@ -256,24 +272,236 @@ void RemoveVisit(agent_t agent_id, unsigned int i) {
     (void)agent_id; (void)i;
 }
 
+static bool is_obstacle(unsigned int lp)
+{
+    return abm_obstacles != NULL && lp < abm_obstacles_count && abm_obstacles[lp] != 0.0;
+}
+
+static void rebuild_adjacency(void)
+{
+    free(abm_adj);
+    abm_adj = NULL;
+    abm_adj_regions = 0;
+    abm_adj_dirs = 0;
+
+    if (!abm_topology)
+        return;
+
+    if (abm_geometry != TOPOLOGY_HEXAGON && abm_geometry != TOPOLOGY_SQUARE && abm_geometry != TOPOLOGY_TORUS)
+        return;
+
+    unsigned int n = (unsigned int)CountRegions(abm_topology);
+    unsigned int n_dirs = (abm_geometry == TOPOLOGY_HEXAGON) ? 6 : 4;
+    const enum topology_direction *dirs = (abm_geometry == TOPOLOGY_HEXAGON) ? hex_directions : square_directions;
+
+    abm_adj = malloc((size_t)n * n_dirs * sizeof(unsigned int));
+    if (!abm_adj) abort();
+
+    abm_adj_regions = n;
+    abm_adj_dirs = n_dirs;
+
+    for (unsigned int u = 0; u < n; u++) {
+        for (unsigned int d = 0; d < n_dirs; d++) {
+            if (is_obstacle(u)) {
+                abm_adj[u * n_dirs + d] = (unsigned int)DIRECTION_INVALID;
+                continue;
+            }
+            lp_id_t r = (GetReceiver)(abm_topology, u, dirs[d]);
+            if (r == INVALID_DIRECTION || is_obstacle((unsigned int)r)) {
+                abm_adj[u * n_dirs + d] = (unsigned int)DIRECTION_INVALID;
+            } else {
+                abm_adj[u * n_dirs + d] = (unsigned int)r;
+            }
+        }
+    }
+}
+
+void abm_set_obstacles(const double *obstacles, unsigned int count)
+{
+    free(abm_obstacles);
+    abm_obstacles = NULL;
+    abm_obstacles_count = 0;
+
+    if (obstacles && count > 0) {
+        abm_obstacles = malloc((size_t)count * sizeof(double));
+        if (!abm_obstacles) abort();
+        memcpy(abm_obstacles, obstacles, (size_t)count * sizeof(double));
+        abm_obstacles_count = count;
+    }
+
+    rebuild_adjacency();
+}
+
+double GetValueTopology(unsigned int from, unsigned int to)
+{
+    (void)from;
+    return is_obstacle(to) ? abm_obstacles[to] : 0.0;
+}
+
 unsigned int FindReceiver(void)
 {
     if (!abm_topology || !current_abm_ctx)
         return 0;
+
+    if (abm_geometry == TOPOLOGY_HEXAGON || abm_geometry == TOPOLOGY_SQUARE || abm_geometry == TOPOLOGY_TORUS) {
+        unsigned int valid[MAX_ABM_DIRECTIONS];
+        unsigned int valid_cnt = 0;
+        for (unsigned int i = 0; i < current_abm_ctx->n_directions; i++) {
+            unsigned int nb = current_abm_ctx->neighbours[i].lp;
+            if (nb != (unsigned int)DIRECTION_INVALID) {
+                valid[valid_cnt++] = nb;
+            }
+        }
+        if (valid_cnt > 0) {
+            return valid[abm_random_range(0, (int)valid_cnt - 1)];
+        }
+        return (unsigned int)current_abm_ctx->me;
+    }
+
     lp_id_t r = (GetReceiver)(abm_topology, current_abm_ctx->me, DIRECTION_RANDOM);
     return (r != INVALID_DIRECTION) ? (unsigned int)r : (unsigned int)current_abm_ctx->me;
 }
 
 unsigned int FindReceiverToward(unsigned int to)
 {
-    // Default to GetReceiver in random direction if direct routing not needed
-    (void)to;
-    return FindReceiver();
+    if (!current_abm_ctx)
+        return 0;
+
+    unsigned int me = (unsigned int)current_abm_ctx->me;
+    if (!abm_adj || me >= abm_adj_regions || to >= abm_adj_regions || me == to || is_obstacle(me) || is_obstacle(to)) {
+        return FindReceiver();
+    }
+
+    unsigned int n = abm_adj_regions;
+    unsigned int n_dirs = abm_adj_dirs;
+
+    unsigned int stack_fh[4096];
+    unsigned int stack_q[4096];
+    unsigned int *first_hop = (n <= 4096) ? stack_fh : malloc((size_t)n * sizeof(unsigned int));
+    unsigned int *queue = (n <= 4096) ? stack_q : malloc((size_t)n * sizeof(unsigned int));
+    if (!first_hop || !queue) abort();
+
+    for (unsigned int i = 0; i < n; i++) {
+        first_hop[i] = UINT_MAX;
+    }
+
+    first_hop[me] = me;
+    unsigned int head = 0;
+    unsigned int tail = 0;
+    unsigned int ret = UINT_MAX;
+
+    unsigned int start_d = (unsigned int)abm_random_range(0, (int)n_dirs - 1);
+    for (unsigned int k = 0; k < n_dirs; k++) {
+        unsigned int d = (start_d + k) % n_dirs;
+        unsigned int nb = abm_adj[me * n_dirs + d];
+        if (nb != (unsigned int)DIRECTION_INVALID) {
+            if (nb == to) {
+                ret = nb;
+                goto done;
+            }
+            if (first_hop[nb] == UINT_MAX) {
+                first_hop[nb] = nb;
+                queue[tail++] = nb;
+            }
+        }
+    }
+
+    while (head < tail) {
+        unsigned int u = queue[head++];
+        unsigned int fh = first_hop[u];
+        for (unsigned int d = 0; d < n_dirs; d++) {
+            unsigned int nb = abm_adj[u * n_dirs + d];
+            if (nb != (unsigned int)DIRECTION_INVALID && first_hop[nb] == UINT_MAX) {
+                if (nb == to) {
+                    ret = fh;
+                    goto done;
+                }
+                first_hop[nb] = fh;
+                queue[tail++] = nb;
+            }
+        }
+    }
+
+done:
+    if (n > 4096) {
+        free(first_hop);
+        free(queue);
+    }
+    return (ret != UINT_MAX) ? ret : FindReceiver();
+}
+
+unsigned int abm_compute_min_tour(unsigned int from, unsigned int to, unsigned int *path)
+{
+    if (!abm_adj || from >= abm_adj_regions || to >= abm_adj_regions || is_obstacle(from) || is_obstacle(to)) {
+        return UINT_MAX;
+    }
+    if (from == to) {
+        if (path)
+            path[0] = from;
+        return 0;
+    }
+
+    unsigned int n = abm_adj_regions;
+    unsigned int n_dirs = abm_adj_dirs;
+
+    unsigned int stack_parent[4096];
+    unsigned int stack_q[4096];
+    unsigned int *parent = (n <= 4096) ? stack_parent : malloc((size_t)n * sizeof(unsigned int));
+    unsigned int *queue = (n <= 4096) ? stack_q : malloc((size_t)n * sizeof(unsigned int));
+    if (!parent || !queue) abort();
+
+    for (unsigned int i = 0; i < n; i++) {
+        parent[i] = UINT_MAX;
+    }
+
+    parent[from] = from;
+    queue[0] = from;
+    unsigned int head = 0;
+    unsigned int tail = 1;
+    bool found = false;
+
+    while (head < tail && !found) {
+        unsigned int u = queue[head++];
+        for (unsigned int d = 0; d < n_dirs; d++) {
+            unsigned int nb = abm_adj[u * n_dirs + d];
+            if (nb != (unsigned int)DIRECTION_INVALID && parent[nb] == UINT_MAX) {
+                parent[nb] = u;
+                if (nb == to) {
+                    found = true;
+                    break;
+                }
+                queue[tail++] = nb;
+            }
+        }
+    }
+
+    unsigned int hops = UINT_MAX;
+    if (found) {
+        hops = 0;
+        unsigned int cur = to;
+        while (cur != from) {
+            hops++;
+            cur = parent[cur];
+        }
+        if (path) {
+            cur = to;
+            for (unsigned int i = hops; i > 0; i--) {
+                path[i] = cur;
+                cur = parent[cur];
+            }
+            path[0] = from;
+        }
+    }
+
+    if (n > 4096) {
+        free(parent);
+        free(queue);
+    }
+    return hops;
 }
 
 unsigned int abm_get_receiver(unsigned int me, unsigned int dir, bool allow_obstacles)
 {
-    (void)allow_obstacles;
     if (!abm_topology) return (unsigned int)DIRECTION_INVALID;
 
     enum topology_direction d = DIRECTION_E;
@@ -285,6 +513,7 @@ unsigned int abm_get_receiver(unsigned int me, unsigned int dir, bool allow_obst
 
     lp_id_t r = (GetReceiver)(abm_topology, me, d);
     if (r == INVALID_DIRECTION) return (unsigned int)DIRECTION_INVALID;
+    if (!allow_obstacles && is_obstacle((unsigned int)r)) return (unsigned int)DIRECTION_INVALID;
     return (unsigned int)r;
 }
 
@@ -377,6 +606,8 @@ static void abm_dispatcher(lp_id_t me, simtime_t now, unsigned int event_type, c
 
             for (unsigned int i = 0; i < ctx->n_directions; i++) {
                 lp_id_t n = (GetReceiver)(abm_topology, me, ctx->directions[i]);
+                if (n != INVALID_DIRECTION && is_obstacle((unsigned int)n))
+                    n = INVALID_DIRECTION;
                 ctx->neighbours[i].lp = (n != INVALID_DIRECTION) ? (unsigned int)n : (unsigned int)DIRECTION_INVALID;
                 if (ctx->neighbour_data_size > 0) {
                     ctx->neighbours[i].data = rs_malloc(ctx->neighbour_data_size);
@@ -412,8 +643,17 @@ static void abm_dispatcher(lp_id_t me, simtime_t now, unsigned int event_type, c
         }
 
         case ABM_LEAVING: {
+            if (!ctx || !event_content) break;
             const struct abm_leave_msg *msg = (const struct abm_leave_msg *)event_content;
             agent_t agent_id = msg->agent_id;
+
+            // Skip leave if the agent has already been killed
+            struct abm_agent *ag = ctx->agents;
+            while (ag) {
+                if (ag->id == agent_id) break;
+                ag = ag->next;
+            }
+            if (!ag) break;
 
             // Call model's leave handler
             if (abm_user_handler) {
@@ -422,7 +662,7 @@ static void abm_dispatcher(lp_id_t me, simtime_t now, unsigned int event_type, c
 
             // Check if agent is still alive and has a planned destination
             struct abm_agent **prev = &ctx->agents;
-            struct abm_agent *ag = ctx->agents;
+            ag = ctx->agents;
             while (ag) {
                 if (ag->id == agent_id) break;
                 prev = &ag->next;
@@ -491,6 +731,13 @@ static void abm_dispatcher(lp_id_t me, simtime_t now, unsigned int event_type, c
             break;
         }
 
+        case LP_FINI: {
+            if (abm_user_handler && ctx) {
+                abm_user_handler(me, now, event_type, event_content, event_size, ctx->user_state);
+            }
+            break;
+        }
+
         default: {
             // Forward event to model
             if (abm_user_handler && ctx) {
@@ -524,6 +771,10 @@ void abm_init_simulation(struct simulation_configuration *conf,
     abm_user_handler = user_handler;
     abm_user_can_end = user_can_end;
 
+    free(abm_obstacles);
+    abm_obstacles = NULL;
+    abm_obstacles_count = 0;
+
     if (abm_topology != NULL) {
         ReleaseTopology(abm_topology);
         abm_topology = NULL;
@@ -534,6 +785,8 @@ void abm_init_simulation(struct simulation_configuration *conf,
     } else {
         abm_topology = InitializeTopology(geom, width * height);
     }
+
+    rebuild_adjacency();
 
     conf->dispatcher = abm_dispatcher;
     conf->committed = abm_committed;

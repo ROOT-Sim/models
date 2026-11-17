@@ -10,6 +10,7 @@ find_package(MPI)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/common/FindROOTSim.cmake)
 
+add_subdirectory(egress)
 add_subdirectory(nosql)
 add_subdirectory(pcs)
 add_subdirectory(phold)

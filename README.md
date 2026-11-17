@@ -6,6 +6,7 @@ A collection of discrete event simulation models targeting ROOT-Sim 3.0, showcas
 
 | Directory | Model Name | Domain | Description |
 |-----------|------------|--------|-------------|
+| `egress/` | Egress | Emergency / ABM | Agent-based crowd emergency evacuation simulation on hexagonal grids with obstacles, panic dynamics, and explosions. |
 | `phold/` | PHOLD | Synthetic Benchmark | Parameterizable Fujimoto synthetic benchmark supporting custom granularity, fan-out, and hot spots. |
 | `pcs/` | PCS | Telecommunications | Personal Communication Services cellular network simulation on hexagonal grids. |
 | `nosql/` | NoSQL | Distributed Systems | Distributed non-relational database transaction processing and validation. |
@@ -46,7 +47,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-This compiles all 11 model executables into their respective subdirectories under `build/`.
+This compiles all 12 model executables into their respective subdirectories under `build/`.
 
 ### Building a Single Model
 
