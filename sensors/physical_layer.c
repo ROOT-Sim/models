@@ -96,7 +96,7 @@ pending_transmission *create_pending_transmission(unsigned char type, void *fram
 	 * Allocate a new instance of type "pending_transmission"
 	 */
 
-	pending_transmission *new_transmission = (pending_transmission *)malloc(sizeof(pending_transmission));
+	pending_transmission *new_transmission = (pending_transmission *)rs_malloc(sizeof(pending_transmission));
 
 	/*
 	 * Set to zero the allocated buffer
@@ -785,7 +785,7 @@ void transmission_finished(node_state *state, pending_transmission *finished_tra
 	 * Finally remove the element associated to the pending transmission
 	 */
 
-	free(finished_transmission_list);
+	rs_free(finished_transmission_list);
 }
 
 /*

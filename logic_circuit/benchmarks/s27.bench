@@ -1,0 +1,23 @@
+# s27 ISCAS-89 benchmark
+# 4 inputs, 1 output, 3 DFFs, 10 gates
+INPUT(G0)
+INPUT(G1)
+INPUT(G2)
+INPUT(G3)
+
+OUTPUT(G17)
+
+G5 = DFF(G10)
+G6 = DFF(G11)
+G7 = DFF(G13)
+
+G8 = NOT(G0)
+G9 = NOT(G5)
+G10 = NOR(G14, G11)
+G11 = NOR(G9, G8)
+G12 = NOR(G1, G7)
+G13 = NOR(G2, G12)
+G14 = NAND(G1, G6)
+G15 = OR(G12, G8)
+G16 = NOR(G3, G8)
+G17 = NOT(G11)
